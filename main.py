@@ -347,7 +347,8 @@ async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ==================== التشغيل الرئيسي ====================
 
 def main():
-    TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN")
+    TOKEN = os.getenv("BOT_TOKEN")
+
     app = Application.builder().token(TOKEN).build()
     
     app.add_handler(CommandHandler("start", start))
