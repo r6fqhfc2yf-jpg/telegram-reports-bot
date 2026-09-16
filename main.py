@@ -363,8 +363,18 @@ def run_dual_spam_process(chat_id, context, topic, bad_link, group_link, templat
     loop.run_until_complete(send_notice("🏁 ✅ Coda completata.\nاكتملت جميع عمليات الشد المزدوج بنجاح."))
 
 # ==================== التشغيل الأساسي ====================
-def main():
-    TOKEN = os.getenv("BOT_TOKEN")
+
+    def main():
+        TOKEN = os.getenv("BOT_TOKEN")
+        import requests
+        requests.get(f"https://api.telegram.org/bot{TOKEN}/deleteWebhook?drop_pending_updates=True")
+
+        if not TOKEN:
+            logger.error("خطأ: لم يتم تعيين BOT_TOKEN!")
+            return
+
+
+
     if not TOKEN:
         logger.error("خطأ: لم يتم تعيين BOT_TOKEN!")
         return
