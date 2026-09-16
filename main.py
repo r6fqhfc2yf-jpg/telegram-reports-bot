@@ -1,10 +1,22 @@
+import os
+import logging
 from telegram import Update
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 from config import BOT_TOKEN
 from database import init_db, add_report, get_reports
 from email_sender import send_report_email
 
-init_db()
+# إعداد السجلات لمتابعة حالة البوت
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
+# تهيئة قاعدة البيانات عند الإقلاع
+try:
+    init_db()
+except Exception as e:
+    logger.error(f"خطأ في تهيئة قاعدة البيانات: {e}")
 
 async def start(update: Update, context):
     keyboard = [[
@@ -40,16 +52,24 @@ async def message_handler(update: Update, context):
     await update.message.reply_text('✅ تم استقبال الرسالة!\n\nشكراً على إبلاغك! سيتم النظر فيه قريباً.')
 
 def main():
-    app = Application.builder().token(BOT_TOKEN).build()
+    token = BOT_TOKEN or os.getenv("BOT_TOKEN")
+    if not token:
+        logger.error("خطأ: لم يتم تعيين BOT_TOKEN نهائياً!")
+        return
 
+    # بناء التطبيق بالطريقة الرسمية الحديثة
+    app = Application.builder().token(token).build()
+
+    # تسجيل الهاندلرات (Handlers) الخاصة بك
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.PHOTO, photo_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
 
-    print("✅ البوت يعمل الآن...")
+    logger.info("✅ البوت يعمل الآن...")
+    
+    # التشغيل بالطريقة الثابتة التي تمنع إغلاق الحاوية
     app.run_polling(drop_pending_updates=True)
-
 
 if __name__ == '__main__':
     main()
