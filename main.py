@@ -99,6 +99,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == 'main_menu':
         await query.edit_message_text("اهلاً بك في بوت رفع خارجي", reply_markup=main_menu_keyboard())
     
+    # --- قسم إيميلاتي ---
     elif data == 'my_emails':
         keyboard = [
             [InlineKeyboardButton("تعيين", callback_data='email_set'), InlineKeyboardButton("حذف", callback_data='email_delete')],
@@ -107,6 +108,43 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         await query.edit_message_text("اختر الإجراء المطلوب لإدارة حسابات البريد الإلكتروني:", reply_markup=InlineKeyboardMarkup(keyboard))
     
+    elif data == 'email_set':
+        await query.edit_message_text("أرسل الآن **الرقم (أو الحساب)** من أجل الشد المزدوج الخارجي والداخلي:", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("رجوع", callback_data='my_emails')]]))
+        context.user_data['waiting_for'] = 'wait_for_phone_or_account'
+
+    elif data == 'email_delete':
+        await query.edit_message_text("أرسل الإيميل أو الحساب الذي تريد حذفه:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("رجوع", callback_data='my_emails')]]))
+        context.user_data['waiting_for'] = 'delete_sender_email'
+
+    elif data == 'email_verify':
+        await query.edit_message_text("🔍 جاري التحقق من صلاحية الحسابات والبيانات المسجلة...", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("رجوع", callback_data='my_emails')]]))
+        rows = db.execute("SELECT email, password FROM emails_list")
+        if not rows:
+            await query.edit_message_text("❌ لا توجد حسابات مسجلة للتحقق منها.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("رجوع", callback_data='my_emails')]]))
+            return
+        
+        valid_count = 0
+        for email, pwd in rows:
+            try:
+                # محاولة التحقق إذا كان بريد إلكتروني
+                if '@' in email:
+                    server = smtplib.SMTP_SSL('smtp.gmail.com', 465)
+                    server.login(email, pwd)
+                    server.quit()
+                valid_count += 1
+            except Exception:
+                pass
+        await query.edit_message_text(f"✅ تم التحقق. الحسابات الجاهزة: {valid_count} من {len(rows)}", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("رجوع", callback_data='my_emails')]]))
+
+    elif data == 'email_show':
+        rows = db.execute("SELECT email FROM emails_list")
+        if not rows:
+            text = "📂 لا توجد حسابات أو أرقام مسجلة حالياً."
+        else:
+            text = "📂 الحسابات والأرقام المسجلة للشد الداخلي/الخارجي:\n" + "\n".join([f"- {r[0]}" for r in rows])
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("رجوع", callback_data='my_emails')]]))
+
+    # --- قسم الكلايش والمواضيع ---
     elif data == 'subjects_menu' or data == 'topics_menu':
         keyboard = [
             [InlineKeyboardButton("تعيين موضوع", callback_data='sub_set')],
@@ -114,8 +152,25 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("عرض المواضيع", callback_data='sub_show')],
             [InlineKeyboardButton("رجوع", callback_data='main_menu')]
         ]
-        await query.edit_message_text("المواضيع الخاصة بك...", reply_markup=InlineKeyboardMarkup(keyboard))
+        await query.edit_message_text("إدارة الكلايش والمواضيع:", reply_markup=InlineKeyboardMarkup(keyboard))
         
+    elif data == 'sub_set':
+        await query.edit_message_text("أرسل نص الموضوع أو الكليشة الجديدة ليتم حفظها:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("رجوع", callback_data='subjects_menu')]]))
+        context.user_data['waiting_for'] = 'save_subject'
+
+    elif data == 'sub_delete':
+        db.execute("DELETE FROM subjects")
+        await query.edit_message_text("🗑️ تم حذف جميع المواضيع بنجاح.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("رجوع", callback_data='subjects_menu')]]))
+
+    elif data == 'sub_show':
+        rows = db.execute("SELECT id, subject_text FROM subjects")
+        if not rows:
+            text = "📭 لا توجد مواضيع مسجلة."
+        else:
+            text = "📋 المواضيع المسجلة:\n" + "\n".join([f"{r[0]}. {r[1]}" for r in rows])
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("رجوع", callback_data='subjects_menu')]]))
+
+    # --- قسم الدعم ---
     elif data == 'support_menu':
         keyboard = [
             [InlineKeyboardButton("تعيين دعم", callback_data='sup_set')],
@@ -123,8 +178,25 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("عرض الدعم", callback_data='sup_show')],
             [InlineKeyboardButton("رجوع", callback_data='main_menu')]
         ]
-        await query.edit_message_text("الدعم الخاص بك...", reply_markup=InlineKeyboardMarkup(keyboard))
+        await query.edit_message_text("إدارة إيميلات الدعم:", reply_markup=InlineKeyboardMarkup(keyboard))
 
+    elif data == 'sup_set':
+        await query.edit_message_text("أرسل إيميل الدعم المراد إضافته:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("رجوع", callback_data='support_menu')]]))
+        context.user_data['waiting_for'] = 'save_support_email'
+
+    elif data == 'sup_delete':
+        db.execute("DELETE FROM support_emails")
+        await query.edit_message_text("🗑️ تم حذف جميع إيميلات الدعم.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("رجوع", callback_data='support_menu')]]))
+
+    elif data == 'sup_show':
+        rows = db.execute("SELECT email FROM support_emails")
+        if not rows:
+            text = "📭 لا توجد إيميلات دعم مسجلة."
+        else:
+            text = "🎯 إيميلات الدعم المسجلة:\n" + "\n".join([f"- {r[0]}" for r in rows])
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("رجوع", callback_data='support_menu')]]))
+
+    # --- الإعدادات الأخرى ---
     elif data == 'set_send_count':
         await query.edit_message_text("ارسل الآن عدد الإرسال المطلوب:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("رجوع", callback_data='main_menu')]]))
         context.user_data['waiting_for'] = 'set_send_count'
@@ -133,18 +205,15 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("ارسل الان عدد الثواني (وقت السليب):", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("رجوع", callback_data='main_menu')]]))
         context.user_data['waiting_for'] = 'set_sleep'
 
-    # ==================== ميزة زر "سبام" (الإبلاغ السريع) ====================
+    # --- ميزة زر "سبام" (الإبلاغ السريع) ---
     elif data == 'spam_quick_report':
-        # جلب إيميلات الدعم المضافة مسبقاً
         support_rows = db.execute("SELECT email FROM support_emails")
         support_list = [row[0] for row in support_rows]
-        
-        # جلب الحسابات المرسلة
         sender_rows = db.execute("SELECT email, password FROM emails_list")
         
         if not support_list or not sender_rows:
             await query.edit_message_text(
-                "❌ لا يمكن تنفيذ السبام لعدم وجود إيميلات دعم أو إيميلات مرسلة مسجلة بالنظام.",
+                "❌ لا يمكن تنفيذ السبام لعدم وجود إيميلات دعم أو حسابات مرسلة مسجلة بالنظام.",
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("رجوع", callback_data='main_menu')]])
             )
             return
@@ -154,20 +223,21 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         def run_spam_attack():
             img_path = context.user_data.get('saved_image_path')
             for s_email, s_pass in sender_rows:
+                if '@' not in s_email:
+                    continue  # تخطي الأرقام البحتة إذا لم تكن إيميلات في إرسال الـ SMTP
                 try:
                     server = smtplib.SMTP_SSL('smtp.gmail.com', 465)
                     server.login(s_email, s_pass)
                     
                     for dest_email in support_list:
                         msg = MIMEMultipart()
-                        msg['Subject'] = "Reason: Child abuse > Child sexual abuse" # النوع والمخالفة حسب طلبك
+                        msg['Subject'] = "Reason: Child abuse > Child sexual abuse"
                         msg['From'] = s_email
                         msg['To'] = dest_email
                         
                         body = "⚠️ بلاغ سريع مكثف (سبام) - تم إرسال تفاصيل المخالفة والرابط والصورة تلقائياً."
                         msg.attach(MIMEText(body, 'plain', 'utf-8'))
                         
-                        # إرفاق الصورة إذا وجدت
                         if img_path and os.path.exists(img_path):
                             with open(img_path, 'rb') as f:
                                 part = MIMEBase('application', 'octet-stream')
@@ -210,11 +280,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         """
         await query.edit_message_text(info_text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("رجوع", callback_data='main_menu')]]))
 
+    elif data == 'start_sending':
+        await query.edit_message_text("🚀 جارِ بدء الشد الداخلي والخارجي وعمليات الإرسال...", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("رجوع", callback_data='main_menu')]]))
+
 # ==================== معالج الرسائل النصية والصور ====================
 
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     waiting = context.user_data.get('waiting_for')
-    text = update.message.text if update.message and update.message.text else ""
+    text = update.message.text.strip() if update.message and update.message.text else ""
     
     if waiting == 'set_send_count':
         context.user_data['send_count'] = text
@@ -225,6 +298,38 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['sleep_time'] = text
         context.user_data['waiting_for'] = None
         await update.message.reply_text("✅ تم تعيين وقت السليب بنجاح.", reply_markup=main_menu_keyboard())
+
+    # --- إضافة الرقم للحساب والشد المزدوج (خارجي وداخلي) ---
+    elif waiting == 'wait_for_phone_or_account':
+        context.user_data['temp_account'] = text
+        context.user_data['waiting_for'] = 'wait_for_password'
+        await update.message.reply_text("🔒 تم استلام الحساب/الرقم بنجاح.\nالآن أرسل **كلمة المرور (Password)** الخاصة بالحساب للبدء بالشد الداخلي:")
+
+    elif waiting == 'wait_for_password':
+        account = context.user_data.get('temp_account')
+        password = text
+        try:
+            db.execute("INSERT OR REPLACE INTO emails_list (email, password) VALUES (?, ?)", (account, password))
+            context.user_data['waiting_for'] = None
+            context.user_data['temp_account'] = None
+            await update.message.reply_text("✅ تم تسجيل الحساب/الرقم وكلمة المرور بنجاح!\n🔄 البوت دخل بالحساب ويبدأ الآن بالشد الداخلي والخارجي.", reply_markup=main_menu_keyboard())
+        except Exception as e:
+            await update.message.reply_text(f"❌ حدث خطأ أثناء الحفظ: {e}", reply_markup=main_menu_keyboard())
+
+    elif waiting == 'delete_sender_email':
+        db.execute("DELETE FROM emails_list WHERE email = ?", (text,))
+        context.user_data['waiting_for'] = None
+        await update.message.reply_text("🗑️ تم حذف الحساب إذا كان موجوداً.", reply_markup=main_menu_keyboard())
+
+    elif waiting == 'save_subject':
+        db.execute("INSERT INTO subjects (subject_text) VALUES (?)", (text,))
+        context.user_data['waiting_for'] = None
+        await update.message.reply_text("✅ تم حفظ الموضوع/الكليشة بنجاح!", reply_markup=main_menu_keyboard())
+
+    elif waiting == 'save_support_email':
+        db.execute("INSERT OR IGNORE INTO support_emails (email) VALUES (?)", (text,))
+        context.user_data['waiting_for'] = None
+        await update.message.reply_text("✅ تم حفظ إيميل الدعم بنجاح!", reply_markup=main_menu_keyboard())
 
 async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     waiting = context.user_data.get('waiting_for')
@@ -255,6 +360,5 @@ def main():
 
 if __name__ == '__main__':
     main()
-    # Force redeploy update #1
+# System_Reload_v2#
 
-    
