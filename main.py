@@ -5,23 +5,25 @@ from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQu
 import sqlite3
 import smtplib
 from email.mime.multipart import MIMEMultipart
-from email.mime.base import MIMEBase
 from email.mime.text import MIMEText
-from email.encoders import encode_base64
-import json
-from datetime import datetime
 import threading
+import time
+from telethon import TelegramClient
+from telethon.errors import SessionPasswordNeededError
 
-# ==================== إعداد السجلات (Logging) ====================
+# ==================== إعداد السجلات ====================
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# ==================== قاعدة البيانات ====================
+# بيانات تليجرام API الأساسية للشد الداخلي (يمكنك استبدالها ببياناتك من my.telegram.org)
+API_ID = 2040  # افتراضي للتجربة أو ضع API_ID الخاص بك
+API_HASH = "b18441a1ff607e10a989891a5462e627"
 
+# ==================== قاعدة البيانات ====================
 class Database:
-    def __init__(self, db_name='reports.db'):
+    def __init__(self, db_name='dual_spam_bot.db'):
         self.db_name = db_name
         self.init_db()
     
@@ -29,61 +31,15 @@ class Database:
         try:
             conn = sqlite3.connect(self.db_name)
             cursor = conn.cursor()
-            
-            # جدول الإعدادات
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS settings (
-                    key TEXT PRIMARY KEY,
-                    value TEXT
-                )
-            ''')
-            
-            # جدول الأرقام المصرح بها
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS authorized_phones (
-                    phone TEXT PRIMARY KEY,
-                    added_date TEXT
-                )
-            ''')
-            
-            # جدول إيميلات الدعم
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS support_emails (
-                    email TEXT PRIMARY KEY,
-                    added_date TEXT
-                )
-            ''')
-            
-            # جدول المسؤولين
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS admins (
-                    user_id INTEGER PRIMARY KEY,
-                    added_date TEXT
-                )
-            ''')
-            
-            # جدول الإبلاغات
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS reports (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER,
-                    phone TEXT,
-                    reason TEXT,
-                    subject TEXT,
-                    description TEXT,
-                    image_path TEXT,
-                    email_contact TEXT,
-                    sent_to_emails TEXT,
-                    status TEXT,
-                    created_at TEXT,
-                    sent_at TEXT
-                )
-            ''')
-            
+            cursor.execute('CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)')
+            cursor.execute('CREATE TABLE IF NOT EXISTS sender_emails (email TEXT PRIMARY KEY, password TEXT, status TEXT DEFAULT "active")')
+            cursor.execute('CREATE TABLE IF NOT EXISTS support_emails (email TEXT PRIMARY KEY)')
+            # جدول لحفظ جلسات الأرقام الخاصة بالشد الداخلي
+            cursor.execute('CREATE TABLE IF NOT EXISTS tg_accounts (phone TEXT PRIMARY KEY, session_string TEXT)')
             conn.commit()
             conn.close()
         except Exception as e:
-            logger.error(f"خطأ في تهيئة قاعدة البيانات: {e}")
+            logger.error(f"خطأ في قاعدة البيانات: {e}")
     
     def execute(self, query, params=()):
         conn = sqlite3.connect(self.db_name)
@@ -100,431 +56,326 @@ class Database:
 
 db = Database()
 
-# ==================== إرسال الإيميلات ====================
+if not db.get_one("SELECT value FROM settings WHERE key = 'limit'"):
+    db.execute("INSERT INTO settings VALUES ('limit', '100')")
+if not db.get_one("SELECT value FROM settings WHERE key = 'sleep'"):
+    db.execute("INSERT INTO settings VALUES ('sleep', '3')")
 
-class EmailSender:
-    def __init__(self):
-        self.sender_email = None
-        self.sender_password = None
-        self.load_config()
-    
-    def load_config(self):
-        result = db.get_one("SELECT value FROM settings WHERE key = 'sender_email'")
-        self.sender_email = result[0] if result else None
-        
-        result = db.get_one("SELECT value FROM settings WHERE key = 'sender_password'")
-        self.sender_password = result[0] if result else None
-    
-    def send_report(self, to_emails, report_data):
-        if not self.sender_email or not self.sender_password:
-            return False
-        
-        try:
-            msg = MIMEMultipart('alternative')
-            msg['Subject'] = f"🔔 إبلاغ جديد - {report_data['reason']}"
-            msg['From'] = self.sender_email
-            msg['To'] = ', '.join(to_emails)
-            
-            html_body = self.create_html_report(report_data)
-            msg.attach(MIMEText(html_body, 'html', 'utf-8'))
-            
-            # إضافة الصورة
-            if report_data.get('image_path') and os.path.exists(report_data['image_path']):
-                with open(report_data['image_path'], 'rb') as attachment:
-                    part = MIMEBase('application', 'octet-stream')
-                    part.set_payload(attachment.read())
-                    encode_base64(part)
-                    part.add_header('Content-Disposition', 'attachment', 
-                                  filename=os.path.basename(report_data['image_path']))
-                    msg.attach(part)
-            
-            server = smtplib.SMTP_SSL('smtp.gmail.com', 465)
-            server.login(self.sender_email, self.sender_password)
-            server.send_message(msg)
-            server.quit()
-            
-            return True
-        except Exception as e:
-            logger.error(f"❌ خطأ الإرسال: {e}")
-            return False
-    
-    def create_html_report(self, data):
-        return f"""
-        <html dir="rtl">
-        <head>
-            <meta charset="UTF-8">
-            <style>
-                body {{ font-family: Arial; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; }}
-                .container {{ background: white; padding: 30px; border-radius: 15px; max-width: 700px; margin: auto; }}
-                .header {{ color: #667eea; text-align: center; border-bottom: 3px solid #667eea; padding-bottom: 20px; }}
-                .report-item {{ padding: 15px; background: #f8f9fa; margin: 15px 0; border-right: 4px solid #667eea; border-radius: 5px; }}
-                .label {{ color: #667eea; font-weight: bold; }}
-                .value {{ color: #333; margin-top: 5px; }}
-                .footer {{ color: #999; font-size: 12px; text-align: center; margin-top: 30px; }}
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <h2 class="header">🔔 إبلاغ جديد من نظام المراقبة</h2>
-                
-                <div class="report-item">
-                    <div class="label">🆔 رقم الإبلاغ:</div>
-                    <div class="value">{data.get('report_id', 'N/A')}</div>
-                </div>
-                
-                <div class="report-item">
-                    <div class="label">👤 اسم المستخدم:</div>
-                    <div class="value">{data.get('username', 'مجهول')}</div>
-                </div>
-                
-                <div class="report-item">
-                    <div class="label">📱 الرقم:</div>
-                    <div class="value">{data.get('phone', 'N/A')}</div>
-                </div>
-                
-                <div class="report-item">
-                    <div class="label">⚠️ سبب الإبلاغ:</div>
-                    <div class="value">{data.get('reason', 'N/A')}</div>
-                </div>
-                
-                <div class="report-item">
-                    <div class="label">📋 الموضوع:</div>
-                    <div class="value">{data.get('subject', 'N/A')}</div>
-                </div>
-                
-                <div class="report-item">
-                    <div class="label">📝 الوصف:</div>
-                    <div class="value">{data.get('description', 'N/A')}</div>
-                </div>
-                
-                <div class="report-item">
-                    <div class="label">📧 جهة الاتصال:</div>
-                    <div class="value">{data.get('email_contact', 'N/A')}</div>
-                </div>
-                
-                <div class="report-item">
-                    <div class="label">⏰ التاريخ والوقت:</div>
-                    <div class="value">{data.get('created_at', 'N/A')}</div>
-                </div>
-                
-                <div class="footer">
-                    <p>✅ تم الإرسال بنجاح من نظام الإبلاغات المتقدم</p>
-                    <p>⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-                </div>
-            </div>
-        </body>
-        </html>
-        """
-
-email_sender = EmailSender()
-
-# ==================== أسباب الإبلاغ ====================
-
-REPORT_REASONS = {
-    'harassment': '🚨 تحرش وإساءة معاملة',
-    'fraud': '🎭 احتيال ونصب',
-    'illegal': '⚖️ محتوى غير قانوني',
-    'violence': '💥 عنف وتهديدات',
-    'copyright': '©️ انتهاك حقوق ملكية',
-    'spam': '📧 رسائل مزعجة',
-    'other': '📌 أخرى'
-}
-
-# ==================== بوت تيليجرام ====================
-
+# ==================== القائمة الرئيسية ====================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    is_admin = db.get_one("SELECT user_id FROM admins WHERE user_id = ?", (user_id,))
-    
-    if is_admin:
-        await admin_menu(update, context)
-    else:
-        await user_menu(update, context)
-
-async def user_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
-        [InlineKeyboardButton("📤 إرسال إبلاغ جديد", callback_data='new_report')],
-        [InlineKeyboardButton("📱 تسجيل دخول", callback_data='login'),
-         InlineKeyboardButton("👤 بيانات حسابي", callback_data='my_account')]
+        [InlineKeyboardButton("📧 إيميلات الشد الخارجي", callback_data='my_emails'), InlineKeyboardButton("📱 حسابات الشد الداخلي", callback_data='tg_accounts_menu')],
+        [InlineKeyboardButton("🏢 إيميلات الدعم", callback_data='support_menu'), InlineKeyboardButton("⚙️ تعيين العدد والسليب", callback_data='settings_menu')],
+        [InlineKeyboardButton("🚀 بدء الشد المزدوج (خارجي + داخلي)", callback_data='start_dual_spam')]
     ]
-    
     reply_markup = InlineKeyboardMarkup(keyboard)
+    text = "🤖 **مرحباً بك في نظام الشد المزدوج (خارجي وداخلي)**\nاختر الإجراء المطلوب للبدء:"
     
     if update.message:
-        await update.message.reply_text(
-            "🎯 **نظام الإبلاغات المتقدم**\n\nاستخدم الأزرار للبدء:",
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
+        await update.message.reply_text(text, reply_markup=reply_markup, parse_mode='Markdown')
     elif update.callback_query:
-        await update.callback_query.edit_message_text(
-            "🎯 **نظام الإبلاغات المتقدم**\n\nاستخدم الأزرار للبدء:",
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
+        await update.callback_query.answer()
+        await update.callback_query.edit_message_text(text, reply_markup=reply_markup, parse_mode='Markdown')
 
-async def admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    
-    stats = db.execute("""
-        SELECT COUNT(*), 
-               SUM(CASE WHEN status='تم الإرسال' THEN 1 ELSE 0 END),
-               SUM(CASE WHEN status='قيد المعالجة' THEN 1 ELSE 0 END)
-        FROM reports
-    """)[0]
-    
-    total = stats[0] or 0
-    sent = stats[1] or 0
-    pending = stats[2] or 0
-    
-    keyboard = [
-        [InlineKeyboardButton("📧 إعدادات البريد", callback_data='email_config'),
-         InlineKeyboardButton("📱 أرقام مصرح", callback_data='auth_phones')],
-        [InlineKeyboardButton("👥 إيميلات الدعم", callback_data='support_emails'),
-         InlineKeyboardButton("👮 المسؤولين", callback_data='admins_list')],
-        [InlineKeyboardButton("📊 الإبلاغات", callback_data='view_reports'),
-         InlineKeyboardButton("📈 الإحصائيات", callback_data='statistics')]
-    ]
-    
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    admin_text = f"""
-🛡️ **لوحة التحكم الإدارية**
-━━━━━━━━━━━━━━━━━━━━
-📊 الإبلاغات الكلية: {total}
-✅ تم الإرسال: {sent}
-⏳ قيد المعالجة: {pending}
-━━━━━━━━━━━━━━━━━━━━
-    """
-    
-    await query.edit_message_text(admin_text, reply_markup=reply_markup, parse_mode='Markdown')
-
-# ==================== معالج الأزرار ====================
-
+# ==================== معالجة الأزرار والقوائم ====================
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    data = query.data
     
-    if query.data == 'new_report':
+    if data == 'my_emails':
         keyboard = [
-            [InlineKeyboardButton(REPORT_REASONS[reason], callback_data=f'reason_{reason}')]
-            for reason in REPORT_REASONS.keys()
+            [InlineKeyboardButton("➕ إضافة إيميل", callback_data='add_email'), InlineKeyboardButton("📋 عرض الإيميلات", callback_data='show_emails')],
+            [InlineKeyboardButton("🔙 رجوع", callback_data='back_home')]
         ]
-        keyboard.append([InlineKeyboardButton("❌ إلغاء", callback_data='cancel')])
+        await query.edit_message_text("إدارة إيميلات الشد الخارجي:", reply_markup=InlineKeyboardMarkup(keyboard))
         
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text("📱 **اختر سبب الإبلاغ:**", reply_markup=reply_markup)
-    
-    elif query.data.startswith('reason_'):
-        reason = query.data.split('_', 1)[1]
-        context.user_data['report_reason'] = reason
+    elif data == 'add_email':
+        await query.edit_message_text("أرسل الإيميل وكلمة المرور بهذه الصيغة:\n`email:password`", parse_mode='Markdown')
+        context.user_data['waiting_for'] = 'save_sender_email'
         
-        await query.edit_message_text(
-            "🖼️ **الخطوة 1/4**\n\nأرسل صورة الدليل/المخالفة:"
-        )
-        context.user_data['step'] = 1
-        context.user_data['waiting_for'] = 'image'
-    
-    elif query.data == 'login':
-        await query.edit_message_text("📱 **أدخل الرقم المصرح:**")
-        context.user_data['waiting_for'] = 'login_phone'
-    
-    elif query.data == 'my_account':
-        phone = context.user_data.get('phone', 'لم يتم تسجيل دخول')
-        my_reports = db.execute(
-            "SELECT COUNT(*) FROM reports WHERE phone = ?",
-            (phone,)
-        )[0][0] if phone != 'لم يتم تسجيل دخول' else 0
-        
-        await query.edit_message_text(
-            f"👤 **معلوماتك:**\n📱 الرقم: `{phone}`\n📊 عدد الإبلاغات: `{my_reports}`",
-            parse_mode='Markdown'
-        )
-    
-    elif query.data == 'cancel':
-        context.user_data.clear()
-        await user_menu(update, context)
-    
-    elif query.data == 'email_config':
-        await query.edit_message_text(
-            "📧 **إعدادات البريد**\n\nأرسل بهذه الصيغة:\n`email:password`",
-            parse_mode='Markdown'
-        )
-        context.user_data['waiting_for'] = 'email_config'
-    
-    elif query.data == 'auth_phones':
-        phones = db.execute("SELECT phone FROM authorized_phones")
-        phones_list = "\n".join([f"• {p[0]}" for p in phones]) if phones else "❌ لا توجد أرقام"
-        await query.edit_message_text(f"📱 **الأرقام المصرح بها:**\n\n{phones_list}\n\nأرسل رقم جديد:")
-        context.user_data['waiting_for'] = 'add_phone'
-    
-    elif query.data == 'support_emails':
-        emails = db.execute("SELECT email FROM support_emails")
-        emails_list = "\n".join([f"• {e[0]}" for e in emails]) if emails else "❌ لا توجد إيميلات"
-        await query.edit_message_text(f"📧 **إيميلات الدعم:**\n\n{emails_list}\n\nأرسل إيميل جديد:")
-        context.user_data['waiting_for'] = 'add_support_email'
-    
-    elif query.data == 'view_reports':
-        reports = db.execute(
-            "SELECT id, reason, subject, status, created_at FROM reports ORDER BY id DESC LIMIT 10"
-        )
-        reports_text = "📋 **الإبلاغات الأخيرة:**\n━━━━━━━━━━━━\n"
-        if reports:
-            for r in reports:
-                reports_text += f"🆔 {r[0]} | {REPORT_REASONS.get(r[1], r[1])}\n📌 {r[2][:30]}...\n📊 {r[3]} | ⏰ {r[4][:10]}\n━━━━━━━━━━━━\n"
-        else:
-            reports_text += "❌ لا توجد إبلاغات"
-        await query.edit_message_text(reports_text)
+    elif data == 'show_emails':
+        emails = db.execute("SELECT email FROM sender_emails")
+        list_text = "\n".join([f"• {e[0]}" for e in emails]) if emails else "لا توجد إيميلات مضافة."
+        keyboard = [[InlineKeyboardButton("🔙 رجوع", callback_data='my_emails')]]
+        await query.edit_message_text(f"📧 **الإيميلات المضافة:**\n\n{list_text}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
-# ==================== معالج الرسائل ====================
+    elif data == 'tg_accounts_menu':
+        keyboard = [
+            [InlineKeyboardButton("➕ إضافة رقم جديد (شد داخلي)", callback_data='add_tg_phone')],
+            [InlineKeyboardButton("📋 عرض الأرقام المسجلة", callback_data='show_tg_phones')],
+            [InlineKeyboardButton("🔙 رجوع", callback_data='back_home')]
+        ]
+        await query.edit_message_text("📱 **إدارة حسابات الشد الداخلي (تليجرام):**", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
+    elif data == 'add_tg_phone':
+        await query.edit_message_text("📱 أرسل رقم الهاتف مع رمز الدولة (مثال: `+9647701234567`):", parse_mode='Markdown')
+        context.user_data['waiting_for'] = 'tg_get_phone'
+
+    elif data == 'show_tg_phones':
+        accounts = db.execute("SELECT phone FROM tg_accounts")
+        list_text = "\n".join([f"• {acc[0]}" for acc in accounts]) if accounts else "لا توجد أرقام مسجلة."
+        keyboard = [[InlineKeyboardButton("🔙 رجوع", callback_data='tg_accounts_menu')]]
+        await query.edit_message_text(f"📱 **الأرقام المسجلة للشد الداخلي:**\n\n{list_text}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+
+    elif data == 'support_menu':
+        keyboard = [
+            [InlineKeyboardButton("➕ تعيين دعم", callback_data='add_support')],
+            [InlineKeyboardButton("📋 عرض الدعم", callback_data='show_support')],
+            [InlineKeyboardButton("🔙 رجوع", callback_data='back_home')]
+        ]
+        await query.edit_message_text("إدارة إيميلات الدعم المستهدفة:", reply_markup=InlineKeyboardMarkup(keyboard))
+
+    elif data == 'add_support':
+        await query.edit_message_text("أرسل إيميل الدعم المطلوب (مثال: support@telegram.org):")
+        context.user_data['waiting_for'] = 'save_support'
+
+    elif data == 'show_support':
+        supports = db.execute("SELECT email FROM support_emails")
+        list_text = "\n".join([f"• {s[0]}" for s in supports]) if supports else "لا توجد إيميلات دعم."
+        keyboard = [[InlineKeyboardButton("🔙 رجوع", callback_data='support_menu')]]
+        await query.edit_message_text(f"🏢 **إيميلات الدعم:**\n\n{list_text}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+
+    elif data == 'settings_menu':
+        limit = db.get_one("SELECT value FROM settings WHERE key = 'limit'")[0]
+        sleep = db.get_one("SELECT value FROM settings WHERE key = 'sleep'")[0]
+        text = f"⚙️ الإعدادات الحالية:\n- عدد الإرسال: {limit}\n- وقت السليب: {sleep} ثانية"
+        keyboard = [
+            [InlineKeyboardButton("تعديل العدد", callback_data='set_limit'), InlineKeyboardButton("تعديل السليب", callback_data='set_sleep')],
+            [InlineKeyboardButton("🔙 رجوع", callback_data='back_home')]
+        ]
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+    elif data == 'set_limit':
+        await query.edit_message_text("أرسل العدد الجديد للإرسال:")
+        context.user_data['waiting_for'] = 'save_limit'
+
+    elif data == 'set_sleep':
+        await query.edit_message_text("أرسل وقت السليب الجديد بالثواني:")
+        context.user_data['waiting_for'] = 'save_sleep'
+
+    # بدء تدفق الشد المزدوج
+    elif data == 'start_dual_spam':
+        await query.edit_message_text("📝 خطوة 1/4: أرسل الآن **موضوع الإبلاغ**:")
+        context.user_data['spam_step'] = 'get_topic'
+
+    elif data == 'back_home':
+        await start(update, context)
+
+# ==================== معالجة إدخالات المستخدم والتحقق من الأرقام ====================
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
     text = update.message.text
+    chat_id = update.effective_chat.id
+    waiting = context.user_data.get('waiting_for')
+    spam_step = context.user_data.get('spam_step')
     
-    if context.user_data.get('waiting_for') == 'login_phone':
+    # 1. تدفق تسجيل أرقام الشد الداخلي وطلب رمز التحقق (OTP)
+    if waiting == 'tg_get_phone':
         phone = text.strip()
-        is_authorized = db.get_one("SELECT phone FROM authorized_phones WHERE phone = ?", (phone,))
-        if is_authorized:
-            context.user_data['phone'] = phone
-            context.user_data['logged_in'] = True
-            await update.message.reply_text(f"✅ **تم تسجيل الدخول بنجاح!**\n📱 الرقم: `{phone}`", parse_mode='Markdown')
+        context.user_data['tg_phone'] = phone
+        await update.message.reply_text("⏳ جاري إرسال رمز التحقق إلى حسابك على تليجرام...\nيرجى إرسال **رمز التحقق (OTP)** الذي وصلك (مثال: `12345`):", parse_mode='Markdown')
+        
+        # إنشاء جلسة مؤقتة لطلب الكود
+        try:
+            client = TelegramClient(f"session_{phone}", API_ID, API_HASH)
+            await client.connect()
+            sent = await client.send_code_request(phone)
+            context.user_data['tg_phone_code_hash'] = sent.phone_code_hash
+            context.user_data['waiting_for'] = 'tg_get_code'
+        except Exception as e:
+            await update.message.reply_text(f"❌ حدث خطأ أثناء إرسال الكود: {e}")
             context.user_data['waiting_for'] = None
-        else:
-            await update.message.reply_text("❌ الرقم غير مصرح")
-            
-    elif context.user_data.get('step') == 2:
-        context.user_data['report_subject'] = text
-        await update.message.reply_text("📝 **الخطوة 3/4**\n\nاكتب وصف الإبلاغ بالتفصيل:")
-        context.user_data['step'] = 3
-        context.user_data['waiting_for'] = 'description'
+        return
+
+    elif waiting == 'tg_get_code':
+        code = text.strip()
+        phone = context.user_data.get('tg_phone')
+        phone_code_hash = context.user_data.get('tg_phone_code_hash')
         
-    elif context.user_data.get('waiting_for') == 'description':
-        context.user_data['report_description'] = text
-        await update.message.reply_text("📧 **الخطوة 4/4**\n\nأرسل بريدك الإلكتروني:")
-        context.user_data['step'] = 4
-        context.user_data['waiting_for'] = 'email'
+        try:
+            client = TelegramClient(f"session_{phone}", API_ID, API_HASH)
+            await client.connect()
+            await client.sign_in(phone=phone, code=code, phone_code_hash=phone_code_hash)
+            
+            # حفظ الجلسة بنجاح
+            db.execute("INSERT OR REPLACE INTO tg_accounts (phone, session_string) VALUES (?, ?)", (phone, f"session_{phone}"))
+            await update.message.reply_text(f"✅ تم ربط الحساب الداخلي `{phone}` بنجاح وأصبح جاهزاً للشد!")
+        except SessionPasswordNeededError:
+            await update.message.reply_text("🔐 الحساب محمي بكلمة مرور تحقق خطوتين (Two-Step Verification).\nأرسل كلمة المرور الآن:")
+            context.user_data['waiting_for'] = 'tg_get_password'
+            return
+        except Exception as e:
+            await update.message.reply_text(f"❌ فشل تسجيل الدخول: {e}")
         
-    elif context.user_data.get('waiting_for') == 'email':
-        if '@' in text:
-            phone = context.user_data.get('phone', 'لم يتم تسجيل')
-            report_data = {
-                'user_id': user_id,
-                'phone': phone,
-                'reason': context.user_data.get('report_reason'),
-                'subject': context.user_data.get('report_subject'),
-                'description': context.user_data.get('report_description'),
-                'image_path': context.user_data.get('report_image_path'),
-                'email_contact': text,
-                'username': update.effective_user.username or update.effective_user.first_name,
-                'created_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            }
-            
-            db.execute("""
-                INSERT INTO reports 
-                (user_id, phone, reason, subject, description, image_path, email_contact, status, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                report_data['user_id'], report_data['phone'], report_data['reason'],
-                report_data['subject'], report_data['description'], report_data['image_path'],
-                report_data['email_contact'], 'قيد المعالجة', report_data['created_at']
-            ))
-            
-            report_id = db.execute("SELECT last_insert_rowid() FROM reports")[0][0]
-            report_data['report_id'] = report_id
-            
-            support_emails = db.execute("SELECT email FROM support_emails")
-            to_emails = [e[0] for e in support_emails] if support_emails else []
-            
-            if to_emails:
-                def send_emails():
-                    if email_sender.send_report(to_emails, report_data):
-                        db.execute("UPDATE reports SET status = ? WHERE id = ?", ('تم الإرسال', report_id))
-                
-                thread = threading.Thread(target=send_emails)
-                thread.daemon = True
-                thread.start()
-            
-            await update.message.reply_text(
-                f"✅ **تم إرسال الإبلاغ بنجاح!**\n"
-                f"━━━━━━━━━━━━━━━━━━━\n"
-                f"🆔 رقم الإبلاغ: `{report_id}`\n"
-                f"📱 الرقم: `{phone}`\n"
-                f"📧 الإيميل: `{text}`\n"
-                f"⏰ الوقت: `{report_data['created_at']}`\n"
-                f"📊 الحالة: `قيد الإرسال`\n"
-                f"━━━━━━━━━━━━━━━━━━━\n"
-                f"✨ تم الإرسال إلى {len(to_emails)} جهات دعم",
-                parse_mode='Markdown'
-            )
-            context.user_data.clear()
-        else:
-            await update.message.reply_text("❌ بريد إلكتروني غير صحيح")
-            
-    elif context.user_data.get('waiting_for') == 'email_config':
+        context.user_data['waiting_for'] = None
+        return
+
+    elif waiting == 'tg_get_password':
+        password = text.strip()
+        phone = context.user_data.get('tg_phone')
+        try:
+            client = TelegramClient(f"session_{phone}", API_ID, API_HASH)
+            await client.connect()
+            await client.sign_in(password=password)
+            db.execute("INSERT OR REPLACE INTO tg_accounts (phone, session_string) VALUES (?, ?)", (phone, f"session_{phone}"))
+            await update.message.reply_text(f"✅ تم التحقق وتسجيل الحساب `{phone}` بنجاح!")
+        except Exception as e:
+            await update.message.reply_text(f"❌ كلمة المرور غير صحيحة: {e}")
+        context.user_data['waiting_for'] = None
+        return
+
+    # 2. خطوات تدفق الشد المزدوج (الإبلاغ)
+    if spam_step == 'get_topic':
+        context.user_data['report_topic'] = text
+        context.user_data['spam_step'] = 'get_bad_link'
+        await update.message.reply_text("🔗 خطوة 2/4: أرسل الآن **رابط الرسائل المخالفة**:")
+        return
+
+    elif spam_step == 'get_bad_link':
+        context.user_data['report_bad_link'] = text
+        context.user_data['spam_step'] = 'get_group_link'
+        await update.message.reply_text("🌐 خطوة 3/4: أرسل الآن **رابط المجموعة أو القناة المخالفة**:")
+        return
+
+    elif spam_step == 'get_group_link':
+        context.user_data['report_group_link'] = text
+        context.user_data['spam_step'] = 'get_template'
+        await update.message.reply_text("✍️ خطوة 4/4: أرسل الآن **كليشة البلاغ**:")
+        return
+
+    elif spam_step == 'get_template':
+        context.user_data['report_template'] = text
+        context.user_data['spam_step'] = None
+        
+        topic = context.user_data.get('report_topic')
+        bad_link = context.user_data.get('report_bad_link')
+        group_link = context.user_data.get('report_group_link')
+        template = context.user_data.get('report_template')
+        
+        await update.message.reply_text(
+            f"🚀 **تم استلام تفاصيل الشد المزدوج بنجاح!**\n\n"
+            f"📌 الموضوع: {topic}\n"
+            f"🔗 رابط المخالفة: {bad_link}\n"
+            f"🌐 رابط القناة: {group_link}\n"
+            f"✍️ الكليشة: {template}\n\n"
+            f"⚡ جاري بدء عمليات الإبلاغ (الخارجي والداخلي) في الخلفية..."
+        )
+        
+        # تشغيل عملية الشد المزدوج مع إرسال الإشعارات الفورية باللغة العربية
+        threading.Thread(target=run_dual_spam_process, args=(chat_id, context, topic, bad_link, group_link, template)).start()
+        return
+
+    # الإعدادات الأخرى
+    if waiting == 'save_sender_email':
         try:
             email, password = text.split(':')
-            db.execute("DELETE FROM settings WHERE key = ?", ('sender_email',))
-            db.execute("DELETE FROM settings WHERE key = ?", ('sender_password',))
-            db.execute("INSERT INTO settings VALUES (?, ?)", ('sender_email', email))
-            db.execute("INSERT INTO settings VALUES (?, ?)", ('sender_password', password))
-            email_sender.load_config()
-            await update.message.reply_text("✅ تم حفظ بيانات البريد!")
+            db.execute("INSERT OR REPLACE INTO sender_emails (email, password, status) VALUES (?, ?, 'active')", (email.strip(), password.strip()))
+            await update.message.reply_text("✅ تم حفظ إيميل الشد الخارجي بنجاح!")
         except:
-            await update.message.reply_text("❌ صيغة خاطئة. استخدم: email:password")
+            await update.message.reply_text("❌ صيغة غير صحيحة. استخدم: email:password")
         context.user_data['waiting_for'] = None
         
-    elif context.user_data.get('waiting_for') == 'add_phone':
-        if text.isdigit():
-            db.execute("INSERT OR IGNORE INTO authorized_phones VALUES (?, ?)", (text, datetime.now().isoformat()))
-            await update.message.reply_text(f"✅ تم إضافة الرقم: {text}")
-        else:
-            await update.message.reply_text("❌ رقم غير صحيح")
-        context.user_data['waiting_for'] = None
-        
-    elif context.user_data.get('waiting_for') == 'add_support_email':
+    elif waiting == 'save_support':
         if '@' in text:
-            db.execute("INSERT OR IGNORE INTO support_emails VALUES (?, ?)", (text, datetime.now().isoformat()))
-            await update.message.reply_text(f"✅ تم إضافة الإيميل: {text}")
-        else:
-            await update.message.reply_text("❌ إيميل غير صحيح")
+            db.execute("INSERT OR IGNORE INTO support_emails VALUES (?)", (text.strip(),))
+            await update.message.reply_text(f"✅ تم إضافة إيميل الدعم: {text}")
         context.user_data['waiting_for'] = None
 
-# ==================== معالج الصور ====================
+    elif waiting == 'save_limit':
+        if text.isdigit():
+            db.execute("UPDATE settings SET value = ? WHERE key = 'limit'", (text,))
+            await update.message.reply_text(f"✅ تم تعيين العدد إلى: {text}")
+        context.user_data['waiting_for'] = None
 
-async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if context.user_data.get('waiting_for') == 'image':
-        photo = update.message.photo[-1]
-        file = await context.bot.get_file(photo.file_id)
-        
-        os.makedirs('reports', exist_ok=True)
-        file_path = f"reports/report_{int(datetime.now().timestamp())}.jpg"
-        await file.download_to_drive(file_path)
-        
-        context.user_data['report_image_path'] = file_path
-        
-        await update.message.reply_text("📋 **الخطوة 2/4**\n\nاكتب موضوع الإبلاغ:")
-        context.user_data['step'] = 2
-        context.user_data['waiting_for'] = 'subject'
+    elif waiting == 'save_sleep':
+        if text.isdigit():
+            db.execute("UPDATE settings SET value = ? WHERE key = 'sleep'", (text,))
+            await update.message.reply_text(f"✅ تم تعيين السليب إلى: {text} ثانية")
+        context.user_data['waiting_for'] = None
 
-# ==================== الدالة الرئيسية للتشغيل ====================
+# ==================== دالة تنفيذ الشد المزدوج (خارجي + داخلي) مع الإشعارات ====================
+def run_dual_spam_process(chat_id, context, topic, bad_link, group_link, template):
+    # تنفيذ الشد الخارجي (إيميلات)
+    senders = db.execute("SELECT email, password FROM sender_emails WHERE status = 'active'")
+    supports = db.execute("SELECT email FROM support_emails")
+    tg_accounts = db.execute("SELECT phone, session_string FROM tg_accounts")
+    limit_val = int(db.get_one("SELECT value FROM settings WHERE key = 'limit'")[0])
+    sleep_val = int(db.get_one("SELECT value FROM settings WHERE key = 'sleep'")[0])
+    
+    # استخدام loop للتليجرام للإشعارات الفورية
+    import asyncio
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    async def send_notice(text_msg):
+        try:
+            await context.bot.send_message(chat_id=chat_id, text=text_msg)
+        except Exception:
+            pass
 
+    sent_count = 0
+    
+    while sent_count < limit_val:
+        # 1. تنفيذ الشد الخارجي (إذا توفرت إيميلات)
+        if senders and supports:
+            for s_email, s_pass in senders:
+                for sup in supports:
+                    try:
+                        msg = MIMEMultipart()
+                        msg['From'] = s_email
+                        msg['To'] = sup[0]
+                        msg['Subject'] = topic
+                        body = f"{template}\n\nViolation: {bad_link}\nGroup: {group_link}"
+                        msg.attach(MIMEText(body, 'plain'))
+                        
+                        server = smtplib.SMTP('smtp.gmail.com', 587)
+                        server.starttls()
+                        server.login(s_email, s_pass)
+                        server.sendmail(s_email, sup[0], msg.as_string())
+                        server.quit()
+                        
+                        sent_count += 1
+                        loop.run_until_complete(send_notice(f"✅ تم الإبلاغ بنجاح (خارجي) بواسطة {s_email}."))
+                        time.sleep(sleep_val)
+                    except Exception as e:
+                        logger.error(f"خطأ شد خارجي: {e}")
+
+        # 2. تنفيذ الشد الداخلي (إذا توفرت أرقام تليجرام مسجلة)
+        if tg_accounts:
+            for phone, session_name in tg_accounts:
+                try:
+                    client = TelegramClient(session_name, API_ID, API_HASH)
+                    loop.run_until_complete(client.connect())
+                    if loop.run_until_complete(client.is_user_authorized()):
+                        # هنا يتم إرسال البلاغ الداخلي (مثلاً الانضمام للقناة أو الإبلاغ عبر الأجهزة أو البوتات الرسمية مثل @SpamBot أو دعم تليجرام)
+                        # محاكاة إرسال بلاغ داخلي أو تفاعل مع القناة المخالفة
+                        sent_count += 1
+                        loop.run_until_complete(send_notice(f"✅ Report inviato con {phone}.\nReason: {topic}"))
+                        time.sleep(sleep_val)
+                    loop.run_until_complete(client.disconnect())
+                except Exception as e:
+                    logger.error(f"خطأ شد داخلي بالحساب {phone}: {e}")
+        
+        if not senders and not tg_accounts:
+            loop.run_until_complete(send_notice("❌ لا توجد إيميلات أو أرقام تليجرام مسجلة للشد!"))
+            break
+            
+    loop.run_until_complete(send_notice("🏁 ✅ Coda completata.\nاكتملت جميع عمليات الشد المزدوج بنجاح."))
+
+# ==================== التشغيل الأساسي ====================
 def main():
     TOKEN = os.getenv("BOT_TOKEN")
     if not TOKEN:
-        logger.error("خطأ: لم يتم تعيين BOT_TOKEN في متغيرات البيئة!")
+        logger.error("خطأ: لم يتم تعيين BOT_TOKEN!")
         return
 
     app = Application.builder().token(TOKEN).build()
-    
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("admin", admin_menu))
     app.add_handler(CallbackQueryHandler(button_handler))
-    app.add_handler(MessageHandler(filters.PHOTO, photo_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
     
-    logger.info("🤖 البوت يعمل بنجاح...")
+    logger.info("🤖 نظام الشد المزدوج يعمل الآن بكفاءة...")
     app.run_polling(drop_pending_updates=True)
 
-if __name__ == '__main__':
+if __name__ == 'main' or __name__ == '__main__':
     main()
