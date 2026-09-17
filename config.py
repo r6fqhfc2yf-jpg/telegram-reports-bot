@@ -1,7 +1,7 @@
 # config.py
 
 # ========== بوت التحكم ==========
-BOT_TOKEN = "8317802581:AAFrAqvI6GVfMB2K5vVt5gT72K-tq5rqIz0"
+BOT_TOKEN = "8317802581:AAGw2RwyMEyzDQ1KH6T8isA6PMlyzotwdYw"
 
 # ========== Telethon (للأرقام) ==========
 API_ID = 82625635
