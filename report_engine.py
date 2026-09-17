@@ -30,9 +30,12 @@ class ReportEngine:
         self.sent_total = 0
         self.failed_total = 0
         self.current_log = []
-        self.progress_message = ""
 
     async def start(self, target_link, reason_key, custom_message, reports_per_number):
+        print("=== ENGINE START ===")
+        print("TARGET: " + target_link)
+        print("REPORTS PER NUMBER: " + str(reports_per_number))
+
         self.running = True
         self.sent_total = 0
         self.failed_total = 0
@@ -42,65 +45,58 @@ class ReportEngine:
 
         if not numbers:
             self.current_log.append("No active numbers.")
+            print("NO ACTIVE NUMBERS")
             self.running = False
             return
 
-        # جمع رسائل القناة مرة واحدة
-        try:
-            temp_client = TelegramClient("temp_session", API_ID, API_HASH)
-            await temp_client.connect()
-            entity = await temp_client.get_entity(target_link)
+        print("NUMBERS FOUND: " + str(len(numbers)))
 
-            all_messages = []
-            async for msg in temp_client.iter_messages(entity, limit=5000):
-                all_messages.append(msg.id)
-
-            await temp_client.disconnect()
-
-            if not all_messages:
-                all_messages = [0]
-
-            self.current_log.append("Found " + str(len(all_messages)) + " messages to report.")
-
-        except Exception as e:
-            self.current_log.append("Cannot read target: " + str(e)[:100])
-            self.running = False
-            return
-
-        # لكل رقم
         for num in numbers:
             if not self.running:
                 break
 
             num_id, phone, session_path = num
+            print("=== PROCESSING: " + phone + " ===")
             self.current_log.append("Processing: " + phone)
 
             client = TelegramClient(session_path, API_ID, API_HASH)
 
             try:
                 await client.connect()
+                print("CONNECTED: " + phone)
 
                 if not await client.is_user_authorized():
+                    print("NOT AUTHORIZED: " + phone)
                     mark_number_dead(phone)
                     self.current_log.append("Dead: " + phone)
                     await client.disconnect()
                     continue
 
-                entity = await client.get_entity(target_link)
+                print("AUTHORIZED: " + phone)
+
+                # محاولة الوصول للكيان
+                try:
+                    entity = await client.get_entity(target_link)
+                    print("ENTITY FOUND: " + str(entity.id))
+                except Exception as e:
+                    print("ERROR IN get_entity: " + str(e))
+                    self.current_log.append("Cannot find target: " + str(e)[:80])
+                    await client.disconnect()
+                    self.running = False
+                    return
+
                 reason = REPORT_REASONS.get(reason_key, types.InputReportReasonOther())
 
-                # إرسال 1000 بلاغ من هذا الرقم
+                # إرسال البلاغات
                 for i in range(reports_per_number):
                     if not self.running:
                         break
 
-                    # اختيار رسالة عشوائية من القائمة
-                    msg_id = all_messages[i % len(all_messages)]
-
                     try:
+                        # إرسال ReportRequest
                         await client(functions.messages.ReportRequest(
                             peer=entity,
-                            id=[msg_id],
+                            id=[0],
                             reason=reason,
                             message=custom_message or ""
                         ))
@@ -109,16 +105,14 @@ class ReportEngine:
                         increment_reports_sent(phone)
                         log_action(phone, target_link, reason_key, "sent", "")
 
-                        # إشعار
-                        self.current_log.append("✅ Report inviato con " + phone + " (#" + str(i + 1) + ")")
-                        print("✅ Report inviato con " + phone)
+                        print("✅ Report inviato con " + phone + " (#" + str(i + 1) + ")")
+                        self.current_log.append("✅ Report inviato con " + phone)
 
-                        # تأخير بين البلاغات
-                        await asyncio.sleep(1.5)
+                        await asyncio.sleep(2)
 
                     except FloodWaitError as e:
-                        self.current_log.append("⚠️ FloodWait " + str(e.seconds) + "s on " + phone)
                         print("⚠️ FloodWait: " + str(e.seconds) + "s")
+                        self.current_log.append("⚠️ FloodWait " + str(e.seconds) + "s")
                         await asyncio.sleep(min(e.seconds, 300))
 
                     except Exception as e:
@@ -126,12 +120,14 @@ class ReportEngine:
                         self.failed_total += 1
                         increment_reports_failed(phone)
                         log_action(phone, target_link, reason_key, "failed", err)
-                        self.current_log.append("❌ " + phone + " saltato: " + err)
-                        print("❌ " + phone + ": " + err)
+                        print("❌ ERROR: " + err)
+                        self.current_log.append("❌ " + phone + ": " + err)
 
                 await client.disconnect()
+                print("DISCONNECTED: " + phone)
 
             except Exception as e:
+                print("BIG ERROR: " + str(e))
                 try:
                     await client.disconnect()
                 except:
@@ -139,6 +135,7 @@ class ReportEngine:
                 self.current_log.append("Error with " + phone + ": " + str(e)[:80])
 
         self.current_log.append("✅ Coda completata.")
+        print("=== ENGINE END ===")
         self.running = False
 
     def stop(self):
@@ -149,4 +146,4 @@ class ReportEngine:
 
 
 engine = ReportEngine()
-#update
+FORCE_UPDATE#
