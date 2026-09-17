@@ -293,9 +293,11 @@ def main():
     app.add_handler(report_conv)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_buttons))
 
-    print("Bot is running.")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_buttons))
 
+engine.set_bot(app)
+print("Bot is running.")
+app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
     main()
