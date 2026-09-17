@@ -1,38 +1,44 @@
-import smtplib
-from email.mime.text import MIMEText
+# email_sender.py
+import aiosmtplib
 from email.mime.multipart import MIMEMultipart
-from config import DEFAULT_SENDER_EMAIL, DEFAULT_SENDER_PASSWORD
+from email.mime.text import MIMEText
+from email.mime.application import MIMEApplication
+import os
 
-def send_report_email(recipient_email, subject, description, image_path=None):
-    if not DEFAULT_SENDER_EMAIL or not DEFAULT_SENDER_PASSWORD:
-        print('⚠ بيانات الإيميل غير محددة')
-        return False
-    
+
+async def send_email(
+    sender_email, sender_password,
+    target_email, subject, body,
+    link=None, attachment_path=None
+):
     try:
         msg = MIMEMultipart()
-        msg['From'] = DEFAULT_SENDER_EMAIL
-        msg['To'] = recipient_email
-        msg['Subject'] = f'إبلاغ جديد: {subject}'
-        
-        body = f'''
-        تم استقبال إبلاغك بنجاح!
-        
-        الموضوع: {subject}
-        الوصف: {description}
-        
-        شكراً لك على الإبلاغ.
-        '''
-        
-        msg.attach(MIMEText(body, 'plain', 'utf-8'))
-        
-        server = smtplib.SMTP('smtp.gmail.com', 587)
-        server.starttls()
-        server.login(DEFAULT_SENDER_EMAIL, DEFAULT_SENDER_PASSWORD)
-        server.send_message(msg)
-        server.quit()
-        
-        print(f'✅ تم إرسال الإيميل إلى {recipient_email}')
-        return True
+        msg['From'] = sender_email
+        msg['To'] = target_email
+        msg['Subject'] = subject
+
+        full_body = body
+        if link:
+            full_body += f"\n\nLink: {link}"
+
+        msg.attach(MIMEText(full_body, 'plain', 'utf-8'))
+
+        if attachment_path and os.path.exists(attachment_path):
+            with open(attachment_path, 'rb') as f:
+                part = MIMEApplication(f.read(), Name=os.path.basename(attachment_path))
+            part['Content-Disposition'] = f'attachment; filename="{os.path.basename(attachment_path)}"'
+            msg.attach(part)
+
+        await aiosmtplib.send(
+            msg,
+            hostname="smtp.gmail.com",
+            port=587,
+            start_tls=True,
+            username=sender_email,
+            password=sender_password,
+            timeout=15
+        )
+        return True, "sent"
+
     except Exception as e:
-        print(f'❌ خطأ في إرسال الإيميل: {e}')
-        return False
+        return False, str(e)[:150]
