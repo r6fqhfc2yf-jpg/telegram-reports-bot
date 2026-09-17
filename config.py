@@ -1,9 +1,8 @@
-import os
-from dotenv import load_dotenv
+# config.py
 
-load_dotenv()
-BOT_TOKEN = os.getenv('BOT_TOKEN')
-DATABASE_NAME = os.getenv('DATABASE_NAME', 'reports.db')
-DEFAULT_SENDER_EMAIL = os.getenv('DEFAULT_SENDER_EMAIL', '')
-DEFAULT_SENDER_PASSWORD = os.getenv('DEFAULT_SENDER_PASSWORD', '')
-INITIAL_ADMINS = [int(aid.strip()) for aid in os.getenv('INITIAL_ADMINS', '').split(',') if aid.strip()]
+BOT_TOKEN = "8317802581:AAFrAqvI6GVfMB2K5vVt5gT72K-tq5rqIz0"
+TARGET_EMAIL = "abuse@telegram.org"
+SMTP_SERVER = "smtp.gmail.com"
+SMTP_PORT = 587
+DATABASE_FILE = "database.db"
+DELAY_BETWEEN_ROUNDS = 1
