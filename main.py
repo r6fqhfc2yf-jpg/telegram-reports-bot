@@ -166,17 +166,17 @@ async def new_report_reason(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def new_report_evidence(update: Update, context: ContextTypes.DEFAULT_TYPE):
     evidence = update.message.text.strip()
     context.user_data["report_evidence"] = "" if evidence == "no" else evidence
-    await update.message.reply_text("How many reports per number? (1-50):")
+    await update.message.reply_text("How many reports per number? (1-1000):")
     return WAITING_REPORT_COUNT
 
 
 async def new_report_count(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         count = int(update.message.text.strip())
-        if count < 1 or count > 50:
+        if count < 1 or count > 1000:
             raise ValueError
     except:
-        await update.message.reply_text("Enter number 1-50:")
+        await update.message.reply_text("Enter number 1-1000:")
         return WAITING_REPORT_COUNT
 
     link = context.user_data.get("report_link")
@@ -298,5 +298,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main() 
-    # v2
+    main()
+    #refresh
