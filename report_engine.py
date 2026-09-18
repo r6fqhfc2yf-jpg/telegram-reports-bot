@@ -90,7 +90,7 @@ class ReportEngine:
 
                 reason = REPORT_REASONS.get(reason_key, types.InputReportReasonOther())
 
-                # إرسال البلاغات — بدون قراءة رسائل
+                 إرسال البلاغات — بدون قراءة رسائل
                 for i in range(reports_per_number):
                     if not self.running:
                         break
