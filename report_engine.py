@@ -83,7 +83,6 @@ class ReportEngine:
                     if not self.running:
                         break
                     try:
-                        # ✅ الحل: استخدام InputReportReasonOther مباشرة
                         await client(functions.messages.ReportRequest(
                             peer=entity,
                             id=[0],
