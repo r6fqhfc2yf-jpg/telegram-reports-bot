@@ -1,4 +1,4 @@
-# FINAL_FIX_v1
+# FINAL_v2
 import os
 import asyncio
 from telethon import TelegramClient, functions
@@ -83,10 +83,7 @@ class ReportEngine:
                         break
                     try:
                         await client(functions.messages.ReportRequest(
-                            peer=entity,
-                            id=[0],
-                            option=types.InputReportReasonOther(),
-                            message=custom_message or ""
+                            entity, [0], types.InputReportReasonOther(), custom_message or ""
                         ))
                         self.sent_total += 1
                         increment_reports_sent(phone)
