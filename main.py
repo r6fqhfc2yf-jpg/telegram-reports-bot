@@ -1,8 +1,4 @@
-# main.py
 # UPDATE_v3
-# main.py
-import os
-...
 import os
 import logging
 import asyncio
@@ -297,12 +293,10 @@ def main():
     app.add_handler(report_conv)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_buttons))
 
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_buttons))
+    engine.set_bot(app)
+    print("Bot is running.")
+    app.run_polling(allowed_updates=Update.ALL_TYPES)
 
-engine.set_bot(app)
-print("Bot is running.")
-app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
     main()
-    # UPDATE_v1
