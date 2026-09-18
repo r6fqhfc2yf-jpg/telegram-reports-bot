@@ -1,8 +1,4 @@
-# ENGINE_v4
-# report_engine.py
-import os
-...
-# report_engine.py
+# ENGINE_v5
 import os
 import asyncio
 from telethon import TelegramClient, functions
@@ -18,14 +14,6 @@ from database import (
 
 API_ID = int(os.environ.get("API_ID", "0"))
 API_HASH = os.environ.get("API_HASH", "")
-
-REPORT_REASONS = {
-    "child": types.InputReportReasonChildAbuse(),
-    "violence": types.InputReportReasonViolence(),
-    "porn": types.InputReportReasonPornography(),
-    "spam": types.InputReportReasonSpam(),
-    "other": types.InputReportReasonOther(),
-}
 
 
 class ReportEngine:
@@ -82,7 +70,6 @@ class ReportEngine:
                     await client.disconnect()
                     continue
 
-                # الوصول للكيان — بدون قراءة الرسائل
                 try:
                     entity = await client.get_entity(target_link)
                     await self.send_status("✅ تم الوصول للكيان.")
@@ -92,9 +79,6 @@ class ReportEngine:
                     self.running = False
                     return
 
-                reason = REPORT_REASONS.get(reason_key, types.InputReportReasonOther())
-
-                 إرسال البلاغات — بدون قراءة رسائل
                 for i in range(reports_per_number):
                     if not self.running:
                         break
@@ -102,8 +86,7 @@ class ReportEngine:
                         await client(functions.messages.ReportRequest(
                             peer=entity,
                             id=[0],
-                            reason=reason,
-                            message=custom_message or ""
+                            reason=types.InputReportReasonOther()
                         ))
                         self.sent_total += 1
                         increment_reports_sent(phone)
@@ -140,4 +123,3 @@ class ReportEngine:
 
 
 engine = ReportEngine()
-# UPDATE_v3
