@@ -1,4 +1,8 @@
 # main.py
+# UPDATE_v3
+# main.py
+import os
+...
 import os
 import logging
 import asyncio
