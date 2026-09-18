@@ -1,5 +1,6 @@
-# FINAL_v2
+# FINAL_v3
 import os
+import re
 import asyncio
 from telethon import TelegramClient, functions
 from telethon.tl import types
@@ -14,6 +15,19 @@ from database import (
 
 API_ID = int(os.environ.get("API_ID", "0"))
 API_HASH = os.environ.get("API_HASH", "")
+
+
+def parse_link(link):
+    link = link.strip()
+    match = re.match(r'https?://t\.me/([^/]+)/(\d+)', link)
+    if match:
+        return match.group(1), int(match.group(2))
+    match = re.match(r'https?://t\.me/([^/]+)$', link)
+    if match:
+        return match.group(1), 0
+    if link.startswith('@'):
+        return link[1:], 0
+    return link, 0
 
 
 class ReportEngine:
@@ -39,10 +53,14 @@ class ReportEngine:
 
     async def start(self, target_link, reason_key, custom_message, reports_per_number):
         await self.send_status("Starting reports...")
+
         self.running = True
         self.sent_total = 0
         self.failed_total = 0
         self.current_log = []
+
+        channel, msg_id = parse_link(target_link)
+        await self.send_status("Channel: " + channel + " | Msg: " + str(msg_id))
 
         numbers = get_active_numbers()
         if not numbers:
@@ -70,7 +88,7 @@ class ReportEngine:
                     continue
 
                 try:
-                    entity = await client.get_entity(target_link)
+                    entity = await client.get_entity(channel)
                     await self.send_status("Target found.")
                 except Exception as e:
                     await self.send_status("Target error: " + str(e)[:200])
@@ -78,17 +96,35 @@ class ReportEngine:
                     self.running = False
                     return
 
+                messages = []
+                if msg_id > 0:
+                    messages = [msg_id]
+                else:
+                    try:
+                        async for msg in client.iter_messages(entity, limit=10):
+                            messages.append(msg.id)
+                    except:
+                        pass
+                    if not messages:
+                        messages = [0]
+
                 for i in range(reports_per_number):
                     if not self.running:
                         break
                     try:
+                        m = messages[i % len(messages)]
+
                         await client(functions.messages.ReportRequest(
-                            entity, [0], types.InputReportReasonOther(), custom_message or ""
+                            entity,
+                            [m],
+                            types.InputReportReasonChildAbuse(),
+                            custom_message or ""
                         ))
+
                         self.sent_total += 1
                         increment_reports_sent(phone)
                         log_action(phone, target_link, reason_key, "sent", "")
-                        await self.send_status("Report inviato con " + phone + " (#" + str(i + 1) + ")")
+                        await self.send_status("✅ Report inviato con " + phone + " (#" + str(i + 1) + ")")
                         await asyncio.sleep(2)
                     except FloodWaitError as e:
                         await self.send_status("FloodWait " + str(e.seconds) + "s")
@@ -98,7 +134,7 @@ class ReportEngine:
                         self.failed_total += 1
                         increment_reports_failed(phone)
                         log_action(phone, target_link, reason_key, "failed", err)
-                        await self.send_status("Failed: " + err)
+                        await self.send_status("❌ " + err)
 
                 await client.disconnect()
 
@@ -109,7 +145,7 @@ class ReportEngine:
                 except:
                     pass
 
-        await self.send_status("Done. Success: " + str(self.sent_total) + " Failed: " + str(self.failed_total))
+        await self.send_status("✅ Done. Success: " + str(self.sent_total) + " Failed: " + str(self.failed_total))
         self.running = False
 
     def stop(self):
