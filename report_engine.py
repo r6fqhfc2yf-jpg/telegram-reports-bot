@@ -1,7 +1,4 @@
-# FORCE_NEW_v1
-# ENGINE_FINAL_v3
-import os
-...
+# ENGINE_v5
 import os
 import asyncio
 from telethon import TelegramClient, functions
@@ -88,8 +85,7 @@ class ReportEngine:
                     try:
                         await client(functions.messages.ReportRequest(
                             peer=entity,
-                            id=[0],
-                            reason=types.InputReportReasonOther()
+                            id=[0]
                         ))
                         self.sent_total += 1
                         increment_reports_sent(phone)
@@ -100,7 +96,7 @@ class ReportEngine:
                         await self.send_status("⚠️ FloodWait " + str(e.seconds) + "s")
                         await asyncio.sleep(min(e.seconds, 300))
                     except Exception as e:
-                        err = str(e)[:200]
+                        err = str(e)[:150]
                         self.failed_total += 1
                         increment_reports_failed(phone)
                         log_action(phone, target_link, reason_key, "failed", err)
