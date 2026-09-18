@@ -1,4 +1,4 @@
-# UPDATE_v10#
+# ENGINE_FINAL
 import os
 import asyncio
 from telethon import TelegramClient, functions
@@ -83,6 +83,7 @@ class ReportEngine:
                     if not self.running:
                         break
                     try:
+                        # ✅ الحل: استخدام InputReportReasonOther مباشرة
                         await client(functions.messages.ReportRequest(
                             peer=entity,
                             id=[0],
@@ -97,7 +98,7 @@ class ReportEngine:
                         await self.send_status("⚠️ FloodWait " + str(e.seconds) + "s")
                         await asyncio.sleep(min(e.seconds, 300))
                     except Exception as e:
-                        err = str(e)[:150]
+                        err = str(e)[:200]
                         self.failed_total += 1
                         increment_reports_failed(phone)
                         log_action(phone, target_link, reason_key, "failed", err)
