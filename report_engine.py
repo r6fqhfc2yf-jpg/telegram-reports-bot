@@ -1,4 +1,4 @@
-# ENGINE_v5
+# FINAL_FIX_v1
 import os
 import asyncio
 from telethon import TelegramClient, functions
@@ -38,8 +38,7 @@ class ReportEngine:
                 pass
 
     async def start(self, target_link, reason_key, custom_message, reports_per_number):
-        await self.send_status("🚀 بدء الإبلاغ\n" + target_link)
-
+        await self.send_status("Starting reports...")
         self.running = True
         self.sent_total = 0
         self.failed_total = 0
@@ -47,34 +46,34 @@ class ReportEngine:
 
         numbers = get_active_numbers()
         if not numbers:
-            await self.send_status("❌ لا توجد أرقام.")
+            await self.send_status("No active numbers.")
             self.running = False
             return
 
-        await self.send_status("📱 عدد الأرقام: " + str(len(numbers)))
+        await self.send_status("Numbers: " + str(len(numbers)))
 
         for num in numbers:
             if not self.running:
                 break
 
             num_id, phone, session_path = num
-            await self.send_status("🔄 معالجة: " + phone)
+            await self.send_status("Processing: " + phone)
 
             client = TelegramClient(session_path, API_ID, API_HASH)
 
             try:
                 await client.connect()
                 if not await client.is_user_authorized():
-                    await self.send_status("❌ غير مصرح: " + phone)
+                    await self.send_status("Not authorized: " + phone)
                     mark_number_dead(phone)
                     await client.disconnect()
                     continue
 
                 try:
                     entity = await client.get_entity(target_link)
-                    await self.send_status("✅ تم الوصول للكيان.")
+                    await self.send_status("Target found.")
                 except Exception as e:
-                    await self.send_status("❌ فشل الوصول:\n" + str(e)[:300])
+                    await self.send_status("Target error: " + str(e)[:200])
                     await client.disconnect()
                     self.running = False
                     return
@@ -85,33 +84,35 @@ class ReportEngine:
                     try:
                         await client(functions.messages.ReportRequest(
                             peer=entity,
-                            id=[0]
+                            id=[0],
+                            option=types.InputReportReasonOther(),
+                            message=custom_message or ""
                         ))
                         self.sent_total += 1
                         increment_reports_sent(phone)
                         log_action(phone, target_link, reason_key, "sent", "")
-                        await self.send_status("✅ Report inviato con " + phone + " (#" + str(i + 1) + ")")
+                        await self.send_status("Report inviato con " + phone + " (#" + str(i + 1) + ")")
                         await asyncio.sleep(2)
                     except FloodWaitError as e:
-                        await self.send_status("⚠️ FloodWait " + str(e.seconds) + "s")
+                        await self.send_status("FloodWait " + str(e.seconds) + "s")
                         await asyncio.sleep(min(e.seconds, 300))
                     except Exception as e:
-                        err = str(e)[:150]
+                        err = str(e)[:200]
                         self.failed_total += 1
                         increment_reports_failed(phone)
                         log_action(phone, target_link, reason_key, "failed", err)
-                        await self.send_status("❌ فشل:\n" + err)
+                        await self.send_status("Failed: " + err)
 
                 await client.disconnect()
 
             except Exception as e:
-                await self.send_status("❌ خطأ عام:\n" + str(e)[:300])
+                await self.send_status("Error: " + str(e)[:200])
                 try:
                     await client.disconnect()
                 except:
                     pass
 
-        await self.send_status("✅ انتهى.\nنجح: " + str(self.sent_total) + "\nفشل: " + str(self.failed_total))
+        await self.send_status("Done. Success: " + str(self.sent_total) + " Failed: " + str(self.failed_total))
         self.running = False
 
     def stop(self):
