@@ -3,9 +3,6 @@
 import os
 import re
 import asyncio
-import aiosmtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 from telethon import TelegramClient, functions
 from telethon.tl import types
 from telethon.errors import FloodWaitError
@@ -14,12 +11,7 @@ from database import (
     increment_reports_sent,
     increment_reports_failed,
     mark_number_dead,
-    log_action,
-    get_active_emails,
-    increment_email_sent,
-    increment_email_failed,
-    mark_email_dead,
-    get_setting
+    log_action
 )
 
 API_ID = int(os.environ.get("API_ID", "0"))
@@ -39,30 +31,6 @@ def parse_link(link):
     return link, 0
 
 
-async def send_email_report(gmail_user, gmail_pass, target_email, target_link, message):
-    try:
-        msg = MIMEMultipart()
-        msg['From'] = gmail_user
-        msg['To'] = target_email
-        msg['Subject'] = "Abuse Report"
-
-        body = "Target: " + target_link + "\n\n" + message
-        msg.attach(MIMEText(body, 'plain', 'utf-8'))
-
-        await aiosmtplib.send(
-            msg,
-            hostname="smtp.gmail.com",
-            port=587,
-            start_tls=True,
-            username=gmail_user,
-            password=gmail_pass,
-            timeout=15
-        )
-        return True, "sent"
-    except Exception as e:
-        return False, str(e)[:150]
-
-
 class ReportEngine:
     def __init__(self):
         self.running = False
@@ -77,6 +45,7 @@ class ReportEngine:
     async def send_status(self, text):
         if self.bot_app:
             try:
+                from database import get_setting
                 admin_id = get_setting("admin_id")
                 if admin_id:
                     await self.bot_app.bot.send_message(chat_id=int(admin_id), text=text)
@@ -85,7 +54,6 @@ class ReportEngine:
 
     async def start(self, target_link, reason_key, custom_message, reports_per_number):
         await self.send_status("Starting reports...")
-
         self.running = True
         self.sent_total = 0
         self.failed_total = 0
@@ -95,45 +63,11 @@ class ReportEngine:
         await self.send_status("Channel: " + channel + " | Msg: " + str(msg_id))
 
         numbers = get_active_numbers()
-        emails = get_active_emails()
-
-        if not numbers and not emails:
-            await self.send_status("No numbers and no emails.")
+        if not numbers:
+            await self.send_status("No active numbers.")
             self.running = False
             return
 
-        target_email = get_setting("target_email", "abuse@telegram.org")
-
-        # ===== إذا لا توجد أرقام، أرسل البريد فقط =====
-        if not numbers and emails:
-            await self.send_status("No numbers. Sending emails only...")
-            await self.send_status("Emails: " + str(len(emails)))
-
-            for i in range(reports_per_number):
-                if not self.running:
-                    break
-                for em in emails:
-                    em_id, em_email, em_pass = em
-                    success, msg_status = await send_email_report(
-                        em_email, em_pass, target_email, target_link, custom_message or ""
-                    )
-                    if success:
-                        increment_email_sent(em_email)
-                        self.sent_total += 1
-                        await self.send_status("Email sent from " + em_email + " (#" + str(i + 1) + ")")
-                    else:
-                        increment_email_failed(em_email)
-                        self.failed_total += 1
-                        if any(kw in msg_status.lower() for kw in ['auth', 'password', 'blocked', 'limit']):
-                            mark_email_dead(em_email)
-                            await self.send_status("Email DEAD: " + em_email)
-                await asyncio.sleep(2)
-
-            await self.send_status("Done (emails only). Success: " + str(self.sent_total) + " Failed: " + str(self.failed_total))
-            self.running = False
-            return
-
-        # ===== إذا توجد أرقام، أرسل الاثنين =====
         await self.send_status("Numbers: " + str(len(numbers)))
 
         for num in numbers:
@@ -191,20 +125,6 @@ class ReportEngine:
                         increment_reports_sent(phone)
                         log_action(phone, target_link, reason_key, "sent", "")
                         await self.send_status("Report inviato con " + phone + " (#" + str(i + 1) + ")")
-
-                        if emails:
-                            for em in emails:
-                                em_id, em_email, em_pass = em
-                                success, msg_status = await send_email_report(
-                                    em_email, em_pass, target_email, target_link, custom_message or ""
-                                )
-                                if success:
-                                    increment_email_sent(em_email)
-                                else:
-                                    increment_email_failed(em_email)
-                                    if any(kw in msg_status.lower() for kw in ['auth', 'password', 'blocked', 'limit']):
-                                        mark_email_dead(em_email)
-
                         await asyncio.sleep(2)
                     except FloodWaitError as e:
                         await self.send_status("FloodWait " + str(e.seconds) + "s")
