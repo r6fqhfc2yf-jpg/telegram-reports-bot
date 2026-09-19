@@ -1,4 +1,4 @@
-# DB_UPDATE_v1
+# DB_UPDATE_v2
 # database.py
 import os
 import sqlite3
@@ -39,18 +39,6 @@ def init_db():
             status TEXT,
             message TEXT,
             timestamp TEXT
-        )
-    ''')
-
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS emails (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            email TEXT UNIQUE,
-            password TEXT,
-            active INTEGER DEFAULT 1,
-            sent_count INTEGER DEFAULT 0,
-            failed_count INTEGER DEFAULT 0,
-            added_at TEXT
         )
     ''')
 
@@ -168,70 +156,3 @@ def get_total_reports():
     row = c.fetchone()
     conn.close()
     return row[0] if row else 0
-
-
-# ===== الإيميلات =====
-def add_email(email, password):
-    conn = sqlite3.connect(DATABASE_FILE)
-    c = conn.cursor()
-    try:
-        c.execute(
-            "INSERT INTO emails (email, password, added_at) VALUES (?, ?, ?)",
-            (email, password, datetime.datetime.now().isoformat())
-        )
-        conn.commit()
-        conn.close()
-        return True
-    except sqlite3.IntegrityError:
-        conn.close()
-        return False
-
-
-def get_all_emails():
-    conn = sqlite3.connect(DATABASE_FILE)
-    c = conn.cursor()
-    c.execute("SELECT id, email, active, sent_count, failed_count FROM emails")
-    rows = c.fetchall()
-    conn.close()
-    return rows
-
-
-def get_active_emails():
-    conn = sqlite3.connect(DATABASE_FILE)
-    c = conn.cursor()
-    c.execute("SELECT id, email, password FROM emails WHERE active = 1")
-    rows = c.fetchall()
-    conn.close()
-    return rows
-
-
-def remove_email(email):
-    conn = sqlite3.connect(DATABASE_FILE)
-    c = conn.cursor()
-    c.execute("DELETE FROM emails WHERE email = ?", (email,))
-    conn.commit()
-    conn.close()
-
-
-def mark_email_dead(email):
-    conn = sqlite3.connect(DATABASE_FILE)
-    c = conn.cursor()
-    c.execute("UPDATE emails SET active = 0 WHERE email = ?", (email,))
-    conn.commit()
-    conn.close()
-
-
-def increment_email_sent(email):
-    conn = sqlite3.connect(DATABASE_FILE)
-    c = conn.cursor()
-    c.execute("UPDATE emails SET sent_count = sent_count + 1 WHERE email = ?", (email,))
-    conn.commit()
-    conn.close()
-
-
-def increment_email_failed(email):
-    conn = sqlite3.connect(DATABASE_FILE)
-    c = conn.cursor()
-    c.execute("UPDATE emails SET failed_count = failed_count + 1 WHERE email = ?", (email,))
-    conn.commit()
-    conn.close()
