@@ -130,3 +130,4 @@ def cancel_pending(phone):
         except:
             pass
         del pending_logins[phone]
+# BOT_v2
