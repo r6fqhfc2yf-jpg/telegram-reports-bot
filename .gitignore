@@ -2,11 +2,8 @@
 config.py
 database.db
 *.session
-attachment_*
+sessions/
 __pycache__/
 *.pyc
 venv/
 env/
-.venv
-.DS_Store
-Thumbs.db
