@@ -30,8 +30,7 @@ WAITING_REPORT_REASON = 5
 WAITING_REPORT_EVIDENCE = 6
 WAITING_REPORT_COUNT = 7
 WAITING_EMAIL_ADD = 10
-WAITING_EMAIL_PASS = 11
-WAITING_TARGET_EMAIL = 12
+WAITING_TARGET_EMAIL = 11
 
 
 def is_admin(update: Update):
@@ -42,10 +41,10 @@ def is_admin(update: Update):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if get_setting("admin_id") is None:
         set_setting("admin_id", str(update.effective_user.id))
-        await update.message.reply_text("Admin set.")
+        await update.message.reply_text("تم تعيين المسؤول.")
 
     if not is_admin(update):
-        await update.message.reply_text("This bot is for admin only.")
+        await update.message.reply_text("هذا البوت للمدير فقط.")
         return
 
     keyboard = [
@@ -58,38 +57,38 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     numbers = get_all_numbers()
     emails = get_all_emails()
     status = "RUNNING" if engine.running else "STOPPED"
-    text = "Report Bot\n\nNumbers: " + str(len(numbers)) + "\nEmails: " + str(len(emails)) + "\nTotal: " + str(get_total_reports()) + "\nStatus: " + status
+    text = "روبوت الإبلاغ\n\nالأرقام: " + str(len(numbers)) + "\nالإيميلات: " + str(len(emails)) + "\nالمجموع: " + str(get_total_reports()) + "\nالحالة: " + status
     await update.message.reply_text(text, reply_markup=reply_markup)
 
 
-# ===== أوامر الأرقام (لا تُلمس) =====
+# ===== أوامر الأرقام =====
 async def add_number_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update):
         return
-    await update.message.reply_text("Send phone number (+964xxx):\n/cancel to abort")
+    await update.message.reply_text("أرسل رقم الهاتف (+964xxx):\n/cancel للإلغاء")
     return WAITING_PHONE
 
 
 async def add_number_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     phone = update.message.text.strip()
     if not phone.startswith("+") or not phone[1:].isdigit():
-        await update.message.reply_text("Invalid number. Try again:")
+        await update.message.reply_text("رقم غير صالح. حاول مرة أخرى:")
         return WAITING_PHONE
 
-    await update.message.reply_text("Sending code...")
+    await update.message.reply_text("إرسال الكود...")
     success, status, extra = await send_code(phone)
 
     if success:
         context.user_data["pending_phone"] = phone
-        await update.message.reply_text("Code sent. Check Telegram. Enter code:")
+        await update.message.reply_text("تم إرسال الكود. تحقق من تيليجرام. أدخل الكود:")
         return WAITING_CODE
     else:
         if status == "invalid_phone":
-            await update.message.reply_text("Invalid phone.")
+            await update.message.reply_text("رقم غير صالح.")
         elif status == "flood":
             await update.message.reply_text("FloodWait: " + str(extra) + "s")
         else:
-            await update.message.reply_text("Error: " + str(extra))
+            await update.message.reply_text("خطأ: " + str(extra))
         await start(update, context)
         return ConversationHandler.END
 
@@ -99,24 +98,24 @@ async def add_number_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     phone = context.user_data.get("pending_phone")
 
     if not phone:
-        await update.message.reply_text("Session lost.")
+        await update.message.reply_text("انتهت الجلسة.")
         await start(update, context)
         return ConversationHandler.END
 
     success, status, extra = await verify_code(phone, code)
 
     if success:
-        await update.message.reply_text("Login OK.\nName: " + str(extra) + "\nPhone: " + phone)
+        await update.message.reply_text("تم تسجيل الدخول.\nالاسم: " + str(extra) + "\nالرقم: " + phone)
         await start(update, context)
         return ConversationHandler.END
     elif status == "needs_2fa":
-        await update.message.reply_text("2FA password required:")
+        await update.message.reply_text("كلمة مرور 2FA مطلوبة:")
         return WAITING_2FA
     elif status == "invalid_code":
-        await update.message.reply_text("Wrong code. Try again:")
+        await update.message.reply_text("كود خطأ. حاول مرة أخرى:")
         return WAITING_CODE
     else:
-        await update.message.reply_text("Error: " + str(extra))
+        await update.message.reply_text("خطأ: " + str(extra))
         await start(update, context)
         return ConversationHandler.END
 
@@ -126,9 +125,9 @@ async def add_number_2fa(update: Update, context: ContextTypes.DEFAULT_TYPE):
     phone = context.user_data.get("pending_phone")
     success, status, extra = await verify_password_2fa(phone, password)
     if success:
-        await update.message.reply_text("Login OK: " + str(extra))
+        await update.message.reply_text("تم تسجيل الدخول: " + str(extra))
     else:
-        await update.message.reply_text("Error: " + str(extra))
+        await update.message.reply_text("خطأ: " + str(extra))
     await start(update, context)
     return ConversationHandler.END
 
@@ -138,9 +137,9 @@ async def list_numbers(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     numbers = get_all_numbers()
     if not numbers:
-        await update.message.reply_text("No numbers.")
+        await update.message.reply_text("لا توجد أرقام.")
         return
-    text = "Numbers (" + str(len(numbers)) + "):\n\n"
+    text = "الأرقام (" + str(len(numbers)) + "):\n\n"
     for num in numbers:
         num_id, phone, session, active, sent, failed = num
         status = "OK" if active else "DEAD"
@@ -152,28 +151,28 @@ async def new_report_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update):
         return
     if engine.running:
-        await update.message.reply_text("Already running.")
+        await update.message.reply_text("يعمل بالفعل.")
         return ConversationHandler.END
-    await update.message.reply_text("Send target link (@username or https://t.me/xxx):")
+    await update.message.reply_text("أرسل رابط الهدف (@username أو https://t.me/xxx):")
     return WAITING_REPORT_LINK
 
 
 async def new_report_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["report_link"] = update.message.text.strip()
-    await update.message.reply_text("Send reason (e.g. Child abuse):")
+    await update.message.reply_text("أرسل السبب (مثل: Child abuse):")
     return WAITING_REPORT_REASON
 
 
 async def new_report_reason(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["report_reason"] = update.message.text.strip()
-    await update.message.reply_text("Send evidence message (or: no):")
+    await update.message.reply_text("أرسل رسالة الإثبات (أو: لا):")
     return WAITING_REPORT_EVIDENCE
 
 
 async def new_report_evidence(update: Update, context: ContextTypes.DEFAULT_TYPE):
     evidence = update.message.text.strip()
-    context.user_data["report_evidence"] = "" if evidence == "no" else evidence
-    await update.message.reply_text("How many reports per number? (1-1000):")
+    context.user_data["report_evidence"] = "" if evidence == "لا" else evidence
+    await update.message.reply_text("كم بلاغاً لكل رقم؟ (1-1000):")
     return WAITING_REPORT_COUNT
 
 
@@ -183,14 +182,14 @@ async def new_report_count(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if count < 1 or count > 1000:
             raise ValueError
     except:
-        await update.message.reply_text("Enter number 1-1000:")
+        await update.message.reply_text("أدخل رقماً بين 1 و 1000:")
         return WAITING_REPORT_COUNT
 
     link = context.user_data.get("report_link")
     reason = context.user_data.get("report_reason")
     evidence = context.user_data.get("report_evidence")
 
-    await update.message.reply_text("Starting flood...")
+    await update.message.reply_text("بدء الفيضان...")
     asyncio.create_task(engine.start(link, "other", reason + "\n\n" + evidence, count))
     await asyncio.sleep(1)
     await start(update, context)
@@ -202,9 +201,9 @@ async def cronologia(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     logs = get_recent_logs(20)
     if not logs:
-        await update.message.reply_text("No logs.")
+        await update.message.reply_text("لا يوجد سجل.")
         return
-    text = "Recent 20:\n\n"
+    text = "آخر 20 عملية:\n\n"
     for log in logs:
         phone, target, reason, status, ts = log
         icon = "OK" if status == "sent" else "FAIL"
@@ -217,7 +216,7 @@ async def statistics(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     status = "RUNNING" if engine.running else "STOPPED"
     emails = get_all_emails()
-    text = "Stats\n\nTotal: " + str(get_total_reports()) + "\nSession OK: " + str(engine.sent_total) + "\nSession Failed: " + str(engine.failed_total) + "\nEmails: " + str(len(emails)) + "\nStatus: " + status
+    text = "إحصائيات\n\nالإجمالي: " + str(get_total_reports()) + "\nناجح: " + str(engine.sent_total) + "\nفاشل: " + str(engine.failed_total) + "\nالإيميلات: " + str(len(emails)) + "\nالحالة: " + status
     await update.message.reply_text(text)
 
 
@@ -225,13 +224,13 @@ async def stop_flood(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update):
         return
     engine.stop()
-    await update.message.reply_text("Stopped.")
+    await update.message.reply_text("تم الإيقاف.")
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "/start\n/addnumber\n/listnumbers\n/cronologia\n/stats\n/cancel\n\n"
-        "/addemail - Add emails (multiple)\n/listemails - List emails\n/setemail - Set target email\n/removeemail - Remove email"
+        "/addemail - إضافة إيميلات\n/listemails - عرض الإيميلات\n/setemail - تحديد بريد الدعم\n/removeemail - حذف إيميل"
     )
 
 
@@ -239,21 +238,20 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     phone = context.user_data.get("pending_phone")
     if phone:
         cancel_pending(phone)
-    await update.message.reply_text("Cancelled.")
+    await update.message.reply_text("تم الإلغاء.")
     await start(update, context)
     return ConversationHandler.END
 
 
-# ===== أوامر الإيميلات (جديدة) =====
+# ===== أوامر الإيميلات =====
 async def add_email_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update):
         return
     await update.message.reply_text(
-        "Send emails in this format (one per line):\n\n"
+        "أرسل الإيميلات بهذا الشكل (كل إيميل في سطر):\n\n"
         "email@example.com:password\n"
         "email2@gmail.com:app password\n\n"
-        "Or: email@example.com app_password\n\n"
-        "/cancel to abort"
+        "/cancel للإلغاء"
     )
     return WAITING_EMAIL_ADD
 
@@ -291,7 +289,9 @@ async def add_email_receive(update: Update, context: ContextTypes.DEFAULT_TYPE):
             failed += 1
 
     await update.message.reply_text(
-        "Added: " + str(added) + "\nFailed/Exists: " + str(failed)
+        "✅ تم إضافة الإيميلات:\n"
+        "المضاف: " + str(added) + "\n"
+        "الفاشل/الموجود: " + str(failed)
     )
     await start(update, context)
     return ConversationHandler.END
@@ -301,14 +301,14 @@ async def set_target_email_start(update: Update, context: ContextTypes.DEFAULT_T
     if not is_admin(update):
         return
     current = get_setting("target_email", "abuse@telegram.org")
-    await update.message.reply_text("Current: " + current + "\n\nSend new target email:")
+    await update.message.reply_text("الحالي: " + current + "\n\nأرسل بريد الدعم الجديد:")
     return WAITING_TARGET_EMAIL
 
 
 async def set_target_email_receive(update: Update, context: ContextTypes.DEFAULT_TYPE):
     target = update.message.text.strip()
     set_setting("target_email", target)
-    await update.message.reply_text("Target email set: " + target)
+    await update.message.reply_text("تم تحديد بريد الدعم: " + target)
     await start(update, context)
     return ConversationHandler.END
 
@@ -318,9 +318,9 @@ async def list_emails(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     emails = get_all_emails()
     if not emails:
-        await update.message.reply_text("No emails.")
+        await update.message.reply_text("لا توجد إيميلات.")
         return
-    text = "Emails (" + str(len(emails)) + "):\n\n"
+    text = "الإيميلات (" + str(len(emails)) + "):\n\n"
     for em in emails:
         em_id, em_addr, active, sent, failed = em
         status = "OK" if active else "DEAD"
@@ -333,10 +333,10 @@ async def remove_email_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     args = context.args
     if not args:
-        await update.message.reply_text("Usage: /removeemail email@example.com")
+        await update.message.reply_text("الاستخدام: /removeemail email@example.com")
         return
     remove_email(args[0])
-    await update.message.reply_text("Removed: " + args[0])
+    await update.message.reply_text("تم الحذف: " + args[0])
 
 
 async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
