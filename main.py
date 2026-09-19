@@ -1,4 +1,5 @@
-# UPDATE_v3
+# UPDATE_v10
+# main.py
 import os
 import logging
 import asyncio
@@ -9,7 +10,8 @@ from telegram.ext import (
 )
 from database import (
     init_db, set_setting, get_setting,
-    get_all_numbers, get_recent_logs, get_total_reports
+    get_all_numbers, get_recent_logs, get_total_reports,
+    add_email, get_all_emails, remove_email
 )
 from session_manager import (
     send_code, verify_code, verify_password_2fa, cancel_pending
@@ -27,6 +29,9 @@ WAITING_REPORT_LINK = 4
 WAITING_REPORT_REASON = 5
 WAITING_REPORT_EVIDENCE = 6
 WAITING_REPORT_COUNT = 7
+WAITING_EMAIL_ADD = 10
+WAITING_EMAIL_PASS = 11
+WAITING_TARGET_EMAIL = 12
 
 
 def is_admin(update: Update):
@@ -51,11 +56,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
     numbers = get_all_numbers()
+    emails = get_all_emails()
     status = "RUNNING" if engine.running else "STOPPED"
-    text = "Report Bot\n\nNumbers: " + str(len(numbers)) + "\nTotal: " + str(get_total_reports()) + "\nStatus: " + status
+    text = "Report Bot\n\nNumbers: " + str(len(numbers)) + "\nEmails: " + str(len(emails)) + "\nTotal: " + str(get_total_reports()) + "\nStatus: " + status
     await update.message.reply_text(text, reply_markup=reply_markup)
 
 
+# ===== أوامر الأرقام (لا تُلمس) =====
 async def add_number_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update):
         return
@@ -209,7 +216,8 @@ async def statistics(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update):
         return
     status = "RUNNING" if engine.running else "STOPPED"
-    text = "Stats\n\nTotal: " + str(get_total_reports()) + "\nSession OK: " + str(engine.sent_total) + "\nSession Failed: " + str(engine.failed_total) + "\nStatus: " + status
+    emails = get_all_emails()
+    text = "Stats\n\nTotal: " + str(get_total_reports()) + "\nSession OK: " + str(engine.sent_total) + "\nSession Failed: " + str(engine.failed_total) + "\nEmails: " + str(len(emails)) + "\nStatus: " + status
     await update.message.reply_text(text)
 
 
@@ -221,7 +229,10 @@ async def stop_flood(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("/start\n/addnumber\n/listnumbers\n/cronologia\n/stats\n/cancel")
+    await update.message.reply_text(
+        "/start\n/addnumber\n/listnumbers\n/cronologia\n/stats\n/cancel\n\n"
+        "/addemail - Add emails (multiple)\n/listemails - List emails\n/setemail - Set target email\n/removeemail - Remove email"
+    )
 
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -231,6 +242,101 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Cancelled.")
     await start(update, context)
     return ConversationHandler.END
+
+
+# ===== أوامر الإيميلات (جديدة) =====
+async def add_email_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update):
+        return
+    await update.message.reply_text(
+        "Send emails in this format (one per line):\n\n"
+        "email@example.com:password\n"
+        "email2@gmail.com:app password\n\n"
+        "Or: email@example.com app_password\n\n"
+        "/cancel to abort"
+    )
+    return WAITING_EMAIL_ADD
+
+
+async def add_email_receive(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    lines = text.split("\n")
+
+    added = 0
+    failed = 0
+
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+
+        if ":" in line:
+            parts = line.split(":", 1)
+        elif " " in line:
+            parts = line.split(" ", 1)
+        else:
+            failed += 1
+            continue
+
+        email = parts[0].strip()
+        password = parts[1].strip()
+
+        if "@" not in email:
+            failed += 1
+            continue
+
+        if add_email(email, password):
+            added += 1
+        else:
+            failed += 1
+
+    await update.message.reply_text(
+        "Added: " + str(added) + "\nFailed/Exists: " + str(failed)
+    )
+    await start(update, context)
+    return ConversationHandler.END
+
+
+async def set_target_email_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update):
+        return
+    current = get_setting("target_email", "abuse@telegram.org")
+    await update.message.reply_text("Current: " + current + "\n\nSend new target email:")
+    return WAITING_TARGET_EMAIL
+
+
+async def set_target_email_receive(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    target = update.message.text.strip()
+    set_setting("target_email", target)
+    await update.message.reply_text("Target email set: " + target)
+    await start(update, context)
+    return ConversationHandler.END
+
+
+async def list_emails(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update):
+        return
+    emails = get_all_emails()
+    if not emails:
+        await update.message.reply_text("No emails.")
+        return
+    text = "Emails (" + str(len(emails)) + "):\n\n"
+    for em in emails:
+        em_id, em_addr, active, sent, failed = em
+        status = "OK" if active else "DEAD"
+        text += "[" + status + "] " + em_addr + " sent:" + str(sent) + " failed:" + str(failed) + "\n"
+    await update.message.reply_text(text)
+
+
+async def remove_email_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update):
+        return
+    args = context.args
+    if not args:
+        await update.message.reply_text("Usage: /removeemail email@example.com")
+        return
+    remove_email(args[0])
+    await update.message.reply_text("Removed: " + args[0])
 
 
 async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -283,14 +389,34 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel)],
     )
 
+    email_conv = ConversationHandler(
+        entry_points=[CommandHandler("addemail", add_email_start)],
+        states={
+            WAITING_EMAIL_ADD: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_email_receive)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+    )
+
+    target_email_conv = ConversationHandler(
+        entry_points=[CommandHandler("setemail", set_target_email_start)],
+        states={
+            WAITING_TARGET_EMAIL: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_target_email_receive)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+    )
+
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("listnumbers", list_numbers))
     app.add_handler(CommandHandler("cronologia", cronologia))
     app.add_handler(CommandHandler("stats", statistics))
     app.add_handler(CommandHandler("stop", stop_flood))
+    app.add_handler(CommandHandler("listemails", list_emails))
+    app.add_handler(CommandHandler("removeemail", remove_email_cmd))
     app.add_handler(add_conv)
     app.add_handler(report_conv)
+    app.add_handler(email_conv)
+    app.add_handler(target_email_conv)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_buttons))
 
     engine.set_bot(app)
