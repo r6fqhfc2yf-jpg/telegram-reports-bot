@@ -1,4 +1,4 @@
-# FINAL_v1
+# REMOVE_NUM_v1
 # main.py
 import os
 import logging
@@ -10,7 +10,8 @@ from telegram.ext import (
 )
 from database import (
     init_db, set_setting, get_setting,
-    get_all_numbers, get_recent_logs, get_total_reports
+    get_all_numbers, get_recent_logs, get_total_reports,
+    remove_number
 )
 from session_manager import (
     send_code, verify_code, verify_password_2fa, cancel_pending
@@ -142,6 +143,17 @@ async def list_numbers(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text)
 
 
+async def remove_number_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update):
+        return
+    args = context.args
+    if not args:
+        await update.message.reply_text("Usage: /removenumber +964xxx")
+        return
+    remove_number(args[0])
+    await update.message.reply_text("Removed: " + args[0])
+
+
 async def new_report_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update):
         return
@@ -222,7 +234,7 @@ async def stop_flood(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("/start\n/addnumber\n/listnumbers\n/cronologia\n/stats\n/cancel")
+    await update.message.reply_text("/start\n/addnumber\n/listnumbers\n/removenumber\n/cronologia\n/stats\n/cancel")
 
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -287,6 +299,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("listnumbers", list_numbers))
+    app.add_handler(CommandHandler("removenumber", remove_number_cmd))
     app.add_handler(CommandHandler("cronologia", cronologia))
     app.add_handler(CommandHandler("stats", statistics))
     app.add_handler(CommandHandler("stop", stop_flood))
