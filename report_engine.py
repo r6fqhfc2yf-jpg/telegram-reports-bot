@@ -180,7 +180,6 @@ class ReportEngine:
                     try:
                         m = messages[i % len(messages)]
 
-                        # 1. ReportRequest (داخلي)
                         await client(functions.messages.ReportRequest(
                             entity,
                             [m],
@@ -193,7 +192,6 @@ class ReportEngine:
                         log_action(phone, target_link, reason_key, "sent", "")
                         await self.send_status("Report inviato con " + phone + " (#" + str(i + 1) + ")")
 
-                        # 2. بريد (خارجي)
                         if emails:
                             for em in emails:
                                 em_id, em_email, em_pass = em
