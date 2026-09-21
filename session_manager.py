@@ -1,3 +1,4 @@
+# SESSION_v2
 # session_manager.py
 import os
 import json
@@ -162,4 +163,3 @@ async def verify_password_2fa(phone, password):
 
 def cancel_pending(phone):
     remove_pending(phone)
-    # SESSION_v2
