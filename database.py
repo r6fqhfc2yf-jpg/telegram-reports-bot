@@ -1,4 +1,4 @@
-# DB_UPDATE_v2
+# DB_v3
 # database.py
 import os
 import sqlite3
@@ -98,6 +98,14 @@ def get_active_numbers():
 
 
 def remove_number(phone):
+    conn = sqlite3.connect(DATABASE_FILE)
+    c = conn.cursor()
+    c.execute("DELETE FROM numbers WHERE phone = ?", (phone,))
+    conn.commit()
+    conn.close()
+
+
+def delete_number_permanently(phone):
     conn = sqlite3.connect(DATABASE_FILE)
     c = conn.cursor()
     c.execute("DELETE FROM numbers WHERE phone = ?", (phone,))
