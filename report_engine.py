@@ -1,4 +1,4 @@
-# ENGINE_UPDATE_v20
+# ENGINE_v3
 # report_engine.py
 import os
 import re
@@ -11,7 +11,9 @@ from database import (
     increment_reports_sent,
     increment_reports_failed,
     mark_number_dead,
-    log_action
+    delete_number_permanently,
+    log_action,
+    get_setting
 )
 
 API_ID = int(os.environ.get("API_ID", "0"))
@@ -45,7 +47,6 @@ class ReportEngine:
     async def send_status(self, text):
         if self.bot_app:
             try:
-                from database import get_setting
                 admin_id = get_setting("admin_id")
                 if admin_id:
                     await self.bot_app.bot.send_message(chat_id=int(admin_id), text=text)
@@ -82,8 +83,8 @@ class ReportEngine:
             try:
                 await client.connect()
                 if not await client.is_user_authorized():
-                    await self.send_status("Not authorized: " + phone)
-                    mark_number_dead(phone)
+                    await self.send_status("Number BANNED, deleting: " + phone)
+                    delete_number_permanently(phone)
                     await client.disconnect()
                     continue
 
