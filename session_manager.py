@@ -1,4 +1,4 @@
-# SESSION_v2
+# SESSION_v3
 # session_manager.py
 import os
 import json
