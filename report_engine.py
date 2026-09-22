@@ -1,11 +1,11 @@
-# ENGINE_v3
+# ENGINE_v5
 # report_engine.py
 import os
 import re
 import asyncio
 from telethon import TelegramClient, functions
 from telethon.tl import types
-from telethon.errors import FloodWaitError
+from telethon.errors import FloodWaitError, UserBannedInChannelError
 from database import (
     get_active_numbers,
     increment_reports_sent,
@@ -126,10 +126,19 @@ class ReportEngine:
                         increment_reports_sent(phone)
                         log_action(phone, target_link, reason_key, "sent", "")
                         await self.send_status("Report inviato con " + phone + " (#" + str(i + 1) + ")")
-                        await asyncio.sleep(2)
+
+                        # تأخير 3.5 ثواني بين البلاغات
+                        await asyncio.sleep(3.5)
+
                     except FloodWaitError as e:
                         await self.send_status("FloodWait " + str(e.seconds) + "s")
                         await asyncio.sleep(min(e.seconds, 300))
+
+                    except UserBannedInChannelError:
+                        await self.send_status("Number banned from channel, deleting: " + phone)
+                        delete_number_permanently(phone)
+                        break
+
                     except Exception as e:
                         err = str(e)[:200]
                         self.failed_total += 1
@@ -151,9 +160,6 @@ class ReportEngine:
 
     def stop(self):
         self.running = False
-
-    def get_log(self):
-        return "\n".join(self.current_log[-50:])
 
 
 engine = ReportEngine()
