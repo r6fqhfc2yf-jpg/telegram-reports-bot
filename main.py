@@ -1,4 +1,4 @@
-# REMOVE_NUM_v1
+# MAIN_v4
 # main.py
 import os
 import logging
@@ -14,7 +14,8 @@ from database import (
     remove_number
 )
 from session_manager import (
-    send_code, verify_code, verify_password_2fa, cancel_pending
+    send_code, verify_code, verify_password_2fa, cancel_pending,
+    save_last_phone, get_last_pending_phone
 )
 from report_engine import engine
 
@@ -76,6 +77,7 @@ async def add_number_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if success:
         context.user_data["pending_phone"] = phone
+        save_last_phone(phone)
         await update.message.reply_text("Code sent. Check Telegram. Enter code:")
         return WAITING_CODE
     else:
@@ -91,7 +93,7 @@ async def add_number_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def add_number_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     code = update.message.text.strip()
-    phone = context.user_data.get("pending_phone")
+    phone = context.user_data.get("pending_phone") or get_last_pending_phone()
 
     if not phone:
         await update.message.reply_text("Session lost.")
@@ -118,7 +120,7 @@ async def add_number_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def add_number_2fa(update: Update, context: ContextTypes.DEFAULT_TYPE):
     password = update.message.text.strip()
-    phone = context.user_data.get("pending_phone")
+    phone = context.user_data.get("pending_phone") or get_last_pending_phone()
     success, status, extra = await verify_password_2fa(phone, password)
     if success:
         await update.message.reply_text("Login OK: " + str(extra))
