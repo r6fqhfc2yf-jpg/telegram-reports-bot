@@ -1,4 +1,4 @@
-# DB_v4
+# DB_v5
 # database.py
 import os
 import sqlite3
@@ -8,9 +8,7 @@ DATABASE_FILE = os.environ.get("DATABASE_FILE", "/app/data/database.db")
 
 
 def init_db():
-    # تأكد من وجود المجلد
     os.makedirs(os.path.dirname(DATABASE_FILE), exist_ok=True)
-    
     conn = sqlite3.connect(DATABASE_FILE)
     c = conn.cursor()
 
