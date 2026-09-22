@@ -1,4 +1,4 @@
-# SESSION_v4
+# SESSION_v5
 # session_manager.py
 import os
 import json
@@ -16,6 +16,7 @@ API_ID = int(os.environ.get("API_ID", "0"))
 API_HASH = os.environ.get("API_HASH", "")
 SESSIONS_FOLDER = "/app/data/sessions"
 PENDING_FILE = "/app/data/pending_logins.json"
+LAST_PHONE_FILE = "/app/data/last_phone.txt"
 
 
 def ensure_sessions_folder():
@@ -27,8 +28,28 @@ def get_session_path(phone):
     return os.path.join(SESSIONS_FOLDER, phone_clean)
 
 
+def save_last_phone(phone):
+    try:
+        os.makedirs(os.path.dirname(LAST_PHONE_FILE), exist_ok=True)
+        with open(LAST_PHONE_FILE, 'w') as f:
+            f.write(phone)
+    except Exception as e:
+        print("Error saving last phone: " + str(e))
+
+
+def get_last_pending_phone():
+    try:
+        if os.path.exists(LAST_PHONE_FILE):
+            with open(LAST_PHONE_FILE, 'r') as f:
+                return f.read().strip()
+    except Exception as e:
+        print("Error reading last phone: " + str(e))
+    return None
+
+
 def save_pending(phone, data):
     try:
+        os.makedirs(os.path.dirname(PENDING_FILE), exist_ok=True)
         if os.path.exists(PENDING_FILE):
             with open(PENDING_FILE, 'r') as f:
                 all_data = json.load(f)
@@ -61,6 +82,8 @@ def remove_pending(phone):
                 del all_data[phone]
             with open(PENDING_FILE, 'w') as f:
                 json.dump(all_data, f)
+        if os.path.exists(LAST_PHONE_FILE):
+            os.remove(LAST_PHONE_FILE)
     except Exception as e:
         print("Error removing pending: " + str(e))
 
@@ -78,6 +101,7 @@ async def send_code(phone):
             "phone_code_hash": sent.phone_code_hash,
             "session_path": session_path
         })
+        save_last_phone(phone)
         await client.disconnect()
         return True, "sent", None
     except PhoneNumberInvalidError:
