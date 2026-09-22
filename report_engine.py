@@ -1,4 +1,4 @@
-# ENGINE_v5
+# ENGINE_v6
 # report_engine.py
 import os
 import re
@@ -127,7 +127,6 @@ class ReportEngine:
                         log_action(phone, target_link, reason_key, "sent", "")
                         await self.send_status("Report inviato con " + phone + " (#" + str(i + 1) + ")")
 
-                        # تأخير 3.5 ثواني بين البلاغات
                         await asyncio.sleep(3.5)
 
                     except FloodWaitError as e:
