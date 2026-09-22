@@ -1,4 +1,4 @@
-# SESSION_v3
+# SESSION_v4
 # session_manager.py
 import os
 import json
@@ -14,13 +14,12 @@ from database import add_number
 
 API_ID = int(os.environ.get("API_ID", "0"))
 API_HASH = os.environ.get("API_HASH", "")
-SESSIONS_FOLDER = "sessions"
-PENDING_FILE = "pending_logins.json"
+SESSIONS_FOLDER = "/app/data/sessions"
+PENDING_FILE = "/app/data/pending_logins.json"
 
 
 def ensure_sessions_folder():
-    if not os.path.exists(SESSIONS_FOLDER):
-        os.makedirs(SESSIONS_FOLDER)
+    os.makedirs(SESSIONS_FOLDER, exist_ok=True)
 
 
 def get_session_path(phone):
